@@ -86,9 +86,18 @@
               return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
             }
           }
+          // Spaced dashes separate an item ID from its answer. Keep unnumbered
+          // scale descriptors such as "4 - Moderately like me" on the normal path.
+          const dashMatch = plainText.match(/^(?:(Item)\s*)?(\d{1,2})\s+[-–—](?:\s+(.*))?$/i);
+          if (dashMatch) {
+            const answer = dashMatch[3] || '';
+            const scaleDescriptor = !dashMatch[1] && VERBAL_SCALE_PATTERNS.some(item =>
+              answer.trim().match(item.regex)?.index === 0);
+            if (!scaleDescriptor) return { itemId: Number(dashMatch[2]), answer, rawText };
+          }
           // Numbered Markdown lists use a period or closing parenthesis. Require
           // whitespace (or end of line) after it so decimals are not item labels.
-          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
+          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)–—-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
           return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
         })
         .filter(Boolean);
@@ -98,6 +107,21 @@
           return { score: null, isRefusal: false, reason: 'Current item answer is missing or ambiguous' };
         }
         return { ...parseItemResponse(matches[0].answer), rawText: matches[0].rawText };
+      }
+
+      // Some sequential replies repeat ratings 1 through the current item
+      // without labels. Only use the final row when every row is a valid rating
+      // and the row count exactly matches the current item ID.
+      const ratingRows = cleaned.split(/\r?\n/).map(line => ({
+        rawText: line.trim(), match: line.trim().match(/^([1-6])(?:\s*\\)?$/)
+      }));
+      if (ratingRows.length > 1 && ratingRows.every(row => row.match)) {
+        if (ratingRows.length !== itemId) {
+          return { score: null, isRefusal: false, reason: 'Rating row count does not match the current item' };
+        }
+        const last = ratingRows[ratingRows.length - 1];
+        return { score: Number(last.match[1]), isRefusal: false,
+          parsedVia: 'cumulative_rating_rows', rawText: last.rawText };
       }
     }
 
@@ -128,6 +152,22 @@
     // Direct single digit match "1" to "6" if response is short
     if (/^[1-6]$/.test(cleaned)) {
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
+    }
+
+    // An opening rating on its own line is explicit even when the explanation
+    // includes an AI caveat. Preserve its Markdown, but never choose the first
+    // of several rating rows (the cumulative-list rule above handles those).
+    const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
+    const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
+    const openingRating = plainRatingLine(responseLines[0]).match(/^([1-6])(?:\s*\\)?$/);
+    if (openingRating) {
+      const otherRatingRows = responseLines.slice(1).some(line =>
+        /^(?:[+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i.test(plainRatingLine(line)));
+      if (otherRatingRows) {
+        return { score: null, isRefusal: false, reason: 'Multiple or conflicting rating rows' };
+      }
+      return { score: Number(openingRating[1]), isRefusal: false,
+        parsedVia: 'opening_rating_line', rawText: responseLines[0] };
     }
 
     // A model may omit the separator before a new sentence: "4It looks ...".
@@ -213,7 +253,7 @@
     const lines = text.split('\n');
     for (const line of lines) {
       // 1. Direct fast match: e.g. "Item 1: 4", "1. 5", "1: 3"
-      const directMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)-]\s*([1-6])\b/i);
+      const directMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)–—-]\s*([1-6])(?!\.\d)\b/i);
       if (directMatch) {
         const itemNum = parseInt(directMatch[1], 10);
         const score = parseInt(directMatch[2], 10);
@@ -224,7 +264,7 @@
       }
 
       // 2. Flexible match: line starts with item number followed by text (e.g. bolded categories, labels)
-      const prefixMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)-]\s*(.*)$/i);
+      const prefixMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)–—-]\s*(.*)$/i);
       if (prefixMatch) {
         const itemNum = parseInt(prefixMatch[1], 10);
         if (itemNum >= 1 && itemNum <= 57 && results[itemNum].score === null) {
