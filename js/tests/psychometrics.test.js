@@ -29,6 +29,27 @@ const dashLines = dashRatings.map((score, index) => `${index + 1}\u202f–\u202f
 const dashResponse = '**Numbers 1–6 (How “like‑you” each item is)**\n\n' + dashLines.join('\n');
 
 describe('parseItemResponse', () => {
+    test('uses the last unnumbered rating when the row count equals the current item ID', () => {
+        for (const text of ['5\n2\n2\n4', '5  \\\r\n2  \\\r\n2  \\\r\n4']) {
+            const result = parseItemResponse(text, 4);
+            assert.strictEqual(result.score, 4);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, '4');
+            assert.strictEqual(parseItemResponse(text, 3).score, null);
+            assert.strictEqual(parseItemResponse(text, 5).score, null);
+            assert.strictEqual(parseItemResponse(text).score, null);
+        }
+        assert.strictEqual(parseItemResponse('5\n2', 2).score, 2);
+        assert.strictEqual(parseItemResponse(Array(57).fill('3').join('\n'), 57).score, 3);
+        assert.strictEqual(parseItemResponse('4', 35).score, 4);
+    });
+
+    test('does not use the last row when an unnumbered list contains invalid or missing ratings', () => {
+        for (const text of ['5\n7\n2\n4', '5\n2.5\n2\n4', '5\n\n2\n4',
+            '5\nN/A\n2\n4', '5\n2\n2\nN/A', 'My answers:\n5\n2\n2\n4', '5 2 2 4']) {
+            assert.strictEqual(parseItemResponse(text, 4).score, null, text);
+        }
+    });
     test('selects the requested rating from dash-separated answers with italic portraits', () => {
         for (const [index, score] of dashRatings.entries()) {
             const result = parseItemResponse(dashResponse, index + 1);
