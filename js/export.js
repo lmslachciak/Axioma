@@ -12,11 +12,12 @@
   // Chunk JSON strings rather than truncating experiment evidence at Excel's cell limit.
   // Each chunk is itself JSON encoded, so spreadsheet formula escaping is unnecessary.
   function experimentChunks(results) {
-    if (!results.experiment && !results.metadata?.itemOrder) return [];
+    if (!results.experiment && !results.metadata?.itemOrder && !results.reprocessing) return [];
     const text = JSON.stringify({
       schemaVersion: 1, experiment: results.experiment || null,
       itemProvenance: results.itemProvenance || {},
       combinedPsychometrics: results.combinedPsychometrics || null,
+      reprocessing: results.reprocessing || null,
       runId: results.metadata?.runId || null,
       itemOrder: results.metadata?.itemOrder || null,
       resolvedSystemPrompt: results.metadata?.resolvedSystemPrompt ?? null
@@ -40,6 +41,7 @@
       throw new Error('Unsupported experiment record version.');
     }
     if (record.experiment) results.experiment = record.experiment;
+    if (record.reprocessing) results.reprocessing = record.reprocessing;
     results.itemProvenance = record.itemProvenance || {};
     results.combinedPsychometrics = record.combinedPsychometrics || null;
     if (!results.combinedPsychometrics && ['prefix', 'supplied'].includes(results.experiment?.condition)) {
@@ -805,8 +807,8 @@
               itemRatings[itemId] = score === "N/A" || score === "" || score === null || score === undefined ? null : Number(score);
               llmQueries[itemId] = item["Query"] || "";
               reasoningTraces[itemId] = item["Reasoning"] || "";
-              rawResponses[itemId] = item["Raw"] || "";
-              parsedFragments[itemId] = item["Parsed Fragment"] || "";
+              rawResponses[itemId] = String(item["Raw"] ?? "");
+              parsedFragments[itemId] = String(item["Parsed Fragment"] ?? "");
             });
             const cfg = {
               provider: summary["Provider"] || "",
@@ -831,7 +833,7 @@
               requestedAt: exchange["Requested At"] || "",
               query: exchange["Query"] || "",
               reasoning: exchange["Full Reasoning"] || "",
-              response: exchange["Full Response"] || "",
+              response: String(exchange["Full Response"] ?? ""),
               actualModel: exchange["Resolved Model"] || "",
               systemFingerprint: exchange["System Fingerprint"] || null,
               tokenUsage: {
@@ -943,8 +945,8 @@
             const score = getValue(`Item ${j} Score`);
             itemRatings[j] = (score === "N/A" || score === null || score === undefined || score === "") ? null : parseInt(score);
             reasoningTraces[j] = getValue(`Item ${j} Reasoning`) || "";
-            rawResponses[j] = getValue(`Item ${j} Raw`) || "";
-            parsedFragments[j] = getValue(`Item ${j} Parsed`) || getValue(`Item_${j}_Parsed`) || "";
+            rawResponses[j] = String(getValue(`Item ${j} Raw`) ?? "");
+            parsedFragments[j] = String(getValue(`Item ${j} Parsed`) ?? getValue(`Item_${j}_Parsed`) ?? "");
             llmQueries[j] = getValue(`Item ${j} Query`) || getValue(`Item_${j}_Query`) || "";
           }
 
@@ -975,7 +977,7 @@
               itemIds: Array.from({ length: 57 }, (_, index) => index + 1),
               query: getValue("Full Batch Query") || llmQueries[1] || "",
               reasoning: getValue("Full Batch Reasoning") || "",
-              response: getValue("Full Batch Response") || "",
+              response: String(getValue("Full Batch Response") ?? ""),
               parsedScores: { ...itemRatings },
               tokenUsage: { ...token },
               actualModel: resolvedModel,
