@@ -322,6 +322,26 @@ test('sequential mode selects the current numbered-list answer and preserves raw
   assert.strictEqual(result.rawResponses[6], response);
 });
 
+test('sequential mode takes the last cumulative rating only for the current question', async () => {
+  const responses = ['1', '3', '6', '5\n2\n2\n4'];
+  let index = 0;
+  const apiClient = {
+    completeChat: async () => ({
+      text: responses[index++], reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const engine = new EvaluatorEngine({ mode: 'sequential', keepContext: true },
+    { ...PVQData, ITEMS: PVQData.ITEMS.slice(0, 4) }, require('../psychometrics.js'), apiClient);
+  const result = await engine.run();
+  assert.deepStrictEqual([1, 2, 3, 4].map(id => result.psychometrics.itemRatings[id]), [1, 3, 6, 4]);
+  assert.strictEqual(result.psychometrics.totalAnswered, 4);
+  assert.strictEqual(result.psychometrics.mrat, null);
+  assert.deepStrictEqual(result.apiExchanges[3].parsedScores, { 4: 4 });
+  assert.strictEqual(result.parsedFragments[4], '4');
+  assert.strictEqual(result.rawResponses[4], responses[3]);
+});
+
 test('engine run attaches actualModel and systemFingerprint to metadata and result', async () => {
   const apiClient = {
     completeChat: async () => {

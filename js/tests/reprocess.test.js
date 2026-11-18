@@ -130,3 +130,27 @@ test('session reprocessing is atomic and does not mutate original runs on failur
   assert.equal(processed.changed, 1);
   assert.equal(processed.results[0].psychometrics.itemRatings[1], 4);
 });
+
+test('reparses saved dash-separated answers for the requested item only', () => {
+  const original = run('sequential', { 35: null });
+  original.rawResponses[35] = '**Numbers 1–6 (How “like-you” each item is)**\n'
+    + '1\u202f–\u202f5\u2003*It is important to him to form his views independently.*\n'
+    + '35\u202f–\u202f4\u2003*It is important to him to have a strong state that can defend its citizens.*';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[35], 4);
+  assert.equal(result.psychometrics.itemRatings[1], null);
+  assert.equal(result.psychometrics.totalAnswered, 1);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.rawResponses[35], original.rawResponses[35]);
+});
+
+test('reparses matching cumulative rating lists without replacing earlier answers', () => {
+  const original = run('sequential', { 1: 1, 4: null, 5: null });
+  original.rawResponses = { 4: '5\n2\n2\n4', 5: '5\n2\n2\n4' };
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[1], 1);
+  assert.equal(result.psychometrics.itemRatings[4], 4);
+  assert.equal(result.psychometrics.itemRatings[5], null);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.parsedFragments[4], '4');
+});

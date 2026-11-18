@@ -37,6 +37,12 @@ static hosting, or any HTTP server.
   Bold Markdown labels and ratings (such as `**Item 10:** 3`) are supported,
   with the original formatting preserved in the saved parsing fragment.
   Numbered lists such as `6. 4`, `6\. 4`, and `6) 4` also match by item ID.
+  Dash-separated answers such as `35 – 4` are supported in sequential and batch
+  mode, including narrow spaces and portrait text following the rating.
+  In sequential mode, an unnumbered list of valid rating rows uses the last row
+  when its row count exactly equals the current item number (for example,
+  `5`, `2`, `2`, `4` on separate lines gives item 4 a rating of 4). Earlier item
+  ratings are preserved; mismatched row counts remain unscored.
   A leading rating joined to a capitalized sentence (such as `4It looks...`) is
   recognized; conversational “like me to rate” is not treated as the “Like me” label.
 - **Reasoning support** — extracts and stores thinking traces (thinking tags,
