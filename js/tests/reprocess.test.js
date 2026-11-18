@@ -154,3 +154,14 @@ test('reparses matching cumulative rating lists without replacing earlier answer
   assert.equal(result.psychometrics.totalAnswered, 2);
   assert.equal(result.parsedFragments[4], '4');
 });
+
+test('recovers an explicit bold rating from a saved response with an AI caveat', () => {
+  const original = run('sequential', { 4: null });
+  original.rawResponses[4] = '**5**\n\nI weigh considerations myself, though as an AI my views arise differently.';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[4], 5);
+  assert.equal(result.psychometrics.totalAnswered, 1);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[4], '**5**');
+  assert.equal(result.rawResponses[4], original.rawResponses[4]);
+});

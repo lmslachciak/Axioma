@@ -29,6 +29,29 @@ const dashLines = dashRatings.map((score, index) => `${index + 1}\u202f–\u202f
 const dashResponse = '**Numbers 1–6 (How “like‑you” each item is)**\n\n' + dashLines.join('\n');
 
 describe('parseItemResponse', () => {
+    test('accepts an explicit opening rating before an AI caveat', () => {
+        const explanation = `I do place real weight on reasoning through questions myself—weighing considerations, questioning assumptions, and not just deferring to authority or popular opinion when forming judgments. I'll note the obvious caveat that as an AI my "views" arise differently than a human's, but engaging in the spirit of the exercise, this describes my operating approach fairly well. Ready for the next item.`;
+        for (const opening of ['**5**', '__5__', '5', '**5**  \\']) {
+            const result = parseItemResponse(`${opening}\n\n${explanation}`, 4);
+            assert.strictEqual(result.score, 5);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, opening);
+        }
+        assert.strictEqual(parseItemResponse('**5**').score, 5);
+    });
+
+    test('does not turn multiple rating lines, invalid numbers, or placeholders into an opening rating', () => {
+        for (const text of [
+            '**5**\n**2**\nAs an AI, I cannot answer.',
+            '**5**\n7\nAs an AI, I cannot answer.',
+            '**5**\nPlease provide your rating (1-6).',
+            '**7**\nAs an AI, I cannot answer.',
+            '**4.5**\nAs an AI, I cannot answer.',
+            'As an AI, I cannot rate this.'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 4).score, null, text);
+        }
+    });
     test('uses the last unnumbered rating when the row count equals the current item ID', () => {
         for (const text of ['5\n2\n2\n4', '5  \\\r\n2  \\\r\n2  \\\r\n4']) {
             const result = parseItemResponse(text, 4);

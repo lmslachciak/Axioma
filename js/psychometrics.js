@@ -154,6 +154,22 @@
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
     }
 
+    // An opening rating on its own line is explicit even when the explanation
+    // includes an AI caveat. Preserve its Markdown, but never choose the first
+    // of several rating rows (the cumulative-list rule above handles those).
+    const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
+    const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
+    const openingRating = plainRatingLine(responseLines[0]).match(/^([1-6])(?:\s*\\)?$/);
+    if (openingRating) {
+      const otherRatingRows = responseLines.slice(1).some(line =>
+        /^(?:[+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i.test(plainRatingLine(line)));
+      if (otherRatingRows) {
+        return { score: null, isRefusal: false, reason: 'Multiple or conflicting rating rows' };
+      }
+      return { score: Number(openingRating[1]), isRefusal: false,
+        parsedVia: 'opening_rating_line', rawText: responseLines[0] };
+    }
+
     // A model may omit the separator before a new sentence: "4It looks ...".
     // Require a capitalized continuation to avoid ordinals such as "4th";
     // the immediate letter also excludes multi-digit numbers and decimals.
