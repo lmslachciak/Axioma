@@ -74,16 +74,19 @@
       const labeledLines = cleaned.split(/\r?\n/)
         .map(line => {
           const rawText = line.trim();
-          if (rawText.includes('|')) {
+          // Ignore paired Markdown bold markers for matching, while retaining
+          // the original line as evidence of the parsed answer.
+          const plainText = rawText.replace(/(\*\*|__)(.*?)\1/g, '$2');
+          if (plainText.includes('|')) {
             // Keep empty cells: an empty rating must not become the item ID
             // or a number from a statement in the preceding column.
-            const cells = rawText.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+            const cells = plainText.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
             const itemMatch = cells[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
             if (itemMatch && cells.length >= 2) {
               return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
             }
           }
-          const match = rawText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*:)\s*(.*)$/i);
+          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*:)\s*(.*)$/i);
           return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
         })
         .filter(Boolean);

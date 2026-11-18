@@ -34,6 +34,8 @@ static hosting, or any HTTP server.
   table ratings take precedence over verbal labels in surrounding prose. Earlier
   answers never fill a missing current answer. The full response remains available
   for inspection.
+  Bold Markdown labels and ratings (such as `**Item 10:** 3`) are supported,
+  with the original formatting preserved in the saved parsing fragment.
   A leading rating joined to a capitalized sentence (such as `4It looks...`) is
   recognized; conversational “like me to rate” is not treated as the “Like me” label.
 - **Reasoning support** — extracts and stores thinking traces (thinking tags,

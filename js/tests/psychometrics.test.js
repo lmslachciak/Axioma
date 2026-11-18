@@ -25,6 +25,33 @@ evalCode(pvqDataCode, pvqDataExports);
 const { parseItemResponse, parseBatchResponse, calculatePsychometrics } = psychMetricsExports;
 
 describe('parseItemResponse', () => {
+    test('selects the current answer from bold Markdown item labels', () => {
+        const lines = ['**Item 7:** 4  \\', '**Item 8:** 3  \\', '**Item 9:** 4  \\', '**Item 10:** 3'];
+        const text = lines.join('\n');
+        for (const [index, score] of [4, 3, 4, 3].entries()) {
+            const result = parseItemResponse(text, index + 7);
+            assert.strictEqual(result.score, score);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, lines[index]);
+        }
+        assert.strictEqual(parseItemResponse(text, 11).score, null);
+    });
+
+    test('supports paired bold markers around labels, ratings, and table cells', () => {
+        for (const text of [
+            '**Item 7**: **4**\n**Item 10**: **3**',
+            '__Item 7:__ 4\n__Item 10:__ 3',
+            '**Item 7: 4**\n**Item 10: 3**',
+            '| **Item 7** | **4** |\n| **Item 10** | **3** |'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 10).score, 3, text);
+        }
+        for (const answer of ['', 'N/A', '7', '4.5', 'I cannot answer.']) {
+            assert.strictEqual(parseItemResponse(`**Item 7:** 4\n**Item 10:** ${answer}`, 10).score, null);
+        }
+        assert.strictEqual(parseItemResponse('Item 10: 4\n**Item 10:** 3', 10).score, null);
+    });
+
     test('selects explicit table ratings before verbal labels in the introduction', () => {
         const introduction = 'Below is a single rating for each of the 35 items, reflecting how closely each described set of values aligns with my (the AI’s) character.  \n' +
             'Because I am an AI language model, I don’t possess personal values, preferences, or a self‑conscious identity, so none of these value statements are “like me.” Accordingly, every item receives the lowest possible rating:';
