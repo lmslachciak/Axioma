@@ -29,6 +29,16 @@ static hosting, or any HTTP server.
 - **Robust answer parsing** — accepts JSON, bare digits, and "Rating: 5"-style
   text; detects refusals and rejects instructional placeholders or requests for
   the user to supply a rating, even when they contain example scale digits.
+  Sequential replies that repeat labeled answers (for example, `Item 1: 5`
+  through `Item 4: 4`) or item/rating tables are matched to the current item;
+  table ratings take precedence over verbal labels in surrounding prose. Earlier
+  answers never fill a missing current answer. The full response remains available
+  for inspection.
+  Bold Markdown labels and ratings (such as `**Item 10:** 3`) are supported,
+  with the original formatting preserved in the saved parsing fragment.
+  Numbered lists such as `6. 4`, `6\. 4`, and `6) 4` also match by item ID.
+  A leading rating joined to a capitalized sentence (such as `4It looks...`) is
+  recognized; conversational “like me to rate” is not treated as the “Like me” label.
 - **Reasoning support** — extracts and stores thinking traces (thinking tags,
   Gemini 3.x thoughts) with a configurable thinking budget.
 - **Reproducibility controls** — temperature, seed, fixed or randomized item order.

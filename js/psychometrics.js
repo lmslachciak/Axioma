@@ -49,8 +49,8 @@
     { score: 3, regex: /(?<!\p{L})(?:a little like me|trochę podobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu },
     // 2: Not like me / niepodobny (must not be followed by "at all")
     { score: 2, regex: /(?<!\p{L})(?:not like me(?!\s+at\s+all)|niepodobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu },
-    // 5: Like me / podobny (must not be preceded by negation/modifiers like not/much/moderately/little/bardzo/średnio/trochę/nie)
-    { score: 5, regex: /(?<!(?:not|much|moderately|little|bardzo|średnio|trochę|nie)\s+)(?<!\p{L})(?:like me|podobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu }
+    // 5: Like me / podobny; exclude modifiers and conversational "like me to ...".
+    { score: 5, regex: /(?<!(?:not|much|moderately|little|bardzo|średnio|trochę|nie)\s+)(?<!\p{L})(?:like me(?!\s+to\b)|podobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu }
   ];
 
   /**
@@ -58,14 +58,48 @@
    * Also detects if the model refused or gave an excuse.
    *
    * @param {string} text - Raw text response from LLM
+   * @param {number} [itemId] - Current sequential item, for replies repeating labeled answers
    * @returns {object} { score: number|null, isRefusal: boolean, explanation: string }
    */
-  function parseItemResponse(text) {
+  function parseItemResponse(text, itemId) {
     if (!text || typeof text !== 'string') {
       return { score: null, isRefusal: true, reason: 'Empty or non-string response' };
     }
 
     const cleaned = text.trim();
+
+    // Sequential replies may repeat earlier answers. Select only the requested
+    // item before interpreting ratings, refusals, or placeholders on other lines.
+    if (Number.isInteger(itemId) && itemId >= 1 && itemId <= 57) {
+      const labeledLines = cleaned.split(/\r?\n/)
+        .map(line => {
+          const rawText = line.trim();
+          // Ignore paired Markdown bold markers for matching, while retaining
+          // the original line as evidence of the parsed answer.
+          const plainText = rawText.replace(/(\*\*|__)(.*?)\1/g, '$2');
+          if (plainText.includes('|')) {
+            // Keep empty cells: an empty rating must not become the item ID
+            // or a number from a statement in the preceding column.
+            const cells = plainText.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+            const itemMatch = cells[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
+            if (itemMatch && cells.length >= 2) {
+              return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
+            }
+          }
+          // Numbered Markdown lists use a period or closing parenthesis. Require
+          // whitespace (or end of line) after it so decimals are not item labels.
+          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
+          return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
+        })
+        .filter(Boolean);
+      if (labeledLines.length > 0) {
+        const matches = labeledLines.filter(entry => entry.itemId === itemId);
+        if (matches.length !== 1) {
+          return { score: null, isRefusal: false, reason: 'Current item answer is missing or ambiguous' };
+        }
+        return { ...parseItemResponse(matches[0].answer), rawText: matches[0].rawText };
+      }
+    }
 
     if (NON_RESPONSE_PATTERNS.some(pattern => pattern.test(cleaned))) {
       return { score: null, isRefusal: true, reason: 'Model returned an instruction or placeholder instead of a rating' };
@@ -94,6 +128,14 @@
     // Direct single digit match "1" to "6" if response is short
     if (/^[1-6]$/.test(cleaned)) {
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
+    }
+
+    // A model may omit the separator before a new sentence: "4It looks ...".
+    // Require a capitalized continuation to avoid ordinals such as "4th";
+    // the immediate letter also excludes multi-digit numbers and decimals.
+    const joinedLeadingDigit = cleaned.match(/^([1-6])(?=\p{Lu}(?:\p{Ll}|\s|['’]))/u);
+    if (joinedLeadingDigit && !isRefusalText) {
+      return { score: Number(joinedLeadingDigit[1]), isRefusal: false, parsedVia: 'leading_digit' };
     }
 
     // Look for patterns like "Rating: 5", "Score: 4", "Score = 3", "Option 4", "5 - Like me", "4/6"

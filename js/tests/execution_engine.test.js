@@ -209,6 +209,119 @@ test('sequential mode creates one complete exchange per item', async () => {
   assert.deepStrictEqual(result.parsedFragments, { 1: '4', 2: '5' });
 });
 
+test('sequential mode scores only the current item in cumulative replies and preserves raw output', async () => {
+  const psychometrics = require('../psychometrics.js');
+  const cumulative = ['Item\u202f1:\u202f5  \\', 'Item\u202f2:\u202f1  \\',
+    'Item\u202f3:\u202f3  \\', 'Item\u202f4:\u202f4'].join('\n');
+  const responses = ['2', '6', '3', cumulative, cumulative];
+  let requestIndex = 0;
+  const apiClient = {
+    completeChat: async () => ({
+      text: responses[requestIndex++], reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const pvqData = { ...PVQData, ITEMS: PVQData.ITEMS.slice(0, 5) };
+  const engine = new EvaluatorEngine({ mode: 'sequential', keepContext: true }, pvqData, psychometrics, apiClient);
+  const result = await engine.run();
+
+  assert.deepStrictEqual([1, 2, 3, 4, 5].map(id => result.psychometrics.itemRatings[id]), [2, 6, 3, 4, null]);
+  assert.strictEqual(result.psychometrics.totalAnswered, 4);
+  assert.strictEqual(result.psychometrics.mrat, null);
+  assert.strictEqual(result.rawResponses[4], cumulative);
+  assert.strictEqual(result.apiExchanges[3].response, cumulative);
+  assert.deepStrictEqual(result.apiExchanges[3].parsedScores, { 4: 4 });
+  assert.deepStrictEqual(result.apiExchanges[4].parsedScores, { 5: null });
+  assert.strictEqual(result.parsedFragments[4], 'Item\u202f4:\u202f4');
+});
+
+test('sequential mode records a rating joined to a conversational follow-up', async () => {
+  const response = '4It looks like we’ve gone through 14 items. Are there any more items you’d like me to rate, or is there something else you have in mind?';
+  const apiClient = {
+    completeChat: async () => ({
+      text: response, reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const pvqData = { ...PVQData, ITEMS: PVQData.ITEMS.filter(item => item.id === 14) };
+  const engine = new EvaluatorEngine({ mode: 'sequential' }, pvqData, require('../psychometrics.js'), apiClient);
+  const result = await engine.run();
+
+  assert.strictEqual(result.psychometrics.itemRatings[14], 4);
+  assert.strictEqual(result.psychometrics.totalAnswered, 1);
+  assert.strictEqual(result.psychometrics.itemRatings[4], null);
+  assert.deepStrictEqual(result.apiExchanges[0].parsedScores, { 14: 4 });
+  assert.strictEqual(result.rawResponses[14], response);
+});
+
+test('sequential mode selects the current table row without scoring other listed items', async () => {
+  const response = ['None of these value statements are “like me.” Every item receives the lowest possible rating:',
+    '| Item | Rating |', '|------|--------|',
+    ...Array.from({ length: 35 }, (_, i) => `| ${i + 1} | 1 |`)].join('\n');
+  const apiClient = {
+    completeChat: async () => ({
+      text: response, reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const pvqData = { ...PVQData, ITEMS: PVQData.ITEMS.filter(item => [35, 36].includes(item.id)) };
+  const engine = new EvaluatorEngine({ mode: 'sequential' }, pvqData, require('../psychometrics.js'), apiClient);
+  const result = await engine.run();
+
+  assert.strictEqual(result.psychometrics.itemRatings[35], 1);
+  assert.strictEqual(result.psychometrics.itemRatings[36], null);
+  assert.strictEqual(result.psychometrics.itemRatings[1], null);
+  assert.strictEqual(result.psychometrics.totalAnswered, 1);
+  assert.deepStrictEqual(result.apiExchanges[0].parsedScores, { 35: 1 });
+  assert.deepStrictEqual(result.apiExchanges[1].parsedScores, { 36: null });
+  assert.strictEqual(result.parsedFragments[35], '| 35 | 1 |');
+  assert.strictEqual(result.rawResponses[35], response);
+  assert.strictEqual(result.apiExchanges[0].response, response);
+});
+
+test('sequential mode parses bold item labels and preserves Markdown in response evidence', async () => {
+  const response = ['**Item 7:** 4  \\', '**Item 8:** 3  \\', '**Item 9:** 4  \\', '**Item 10:** 3'].join('\n');
+  const apiClient = {
+    completeChat: async () => ({
+      text: response, reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const pvqData = { ...PVQData, ITEMS: PVQData.ITEMS.filter(item => [10, 11].includes(item.id)) };
+  const engine = new EvaluatorEngine({ mode: 'sequential' }, pvqData, require('../psychometrics.js'), apiClient);
+  const result = await engine.run();
+
+  assert.strictEqual(result.psychometrics.itemRatings[10], 3);
+  assert.strictEqual(result.psychometrics.itemRatings[11], null);
+  assert.strictEqual(result.psychometrics.itemRatings[7], null);
+  assert.strictEqual(result.psychometrics.totalAnswered, 1);
+  assert.deepStrictEqual(result.apiExchanges[0].parsedScores, { 10: 3 });
+  assert.strictEqual(result.parsedFragments[10], '**Item 10:** 3');
+  assert.strictEqual(result.rawResponses[10], response);
+  assert.strictEqual(result.apiExchanges[0].response, response);
+});
+
+test('sequential mode selects the current numbered-list answer and preserves raw output', async () => {
+  const response = ['1. 3  \\', '2. 5  \\', '3. 4  \\', '4. 5  \\', '5. 6  \\', '6. 4'].join('\n');
+  const apiClient = {
+    completeChat: async () => ({
+      text: response, reasoning: '',
+      tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 }
+    })
+  };
+  const pvqData = { ...PVQData, ITEMS: PVQData.ITEMS.filter(item => [6, 7].includes(item.id)) };
+  const engine = new EvaluatorEngine({ mode: 'sequential' }, pvqData, require('../psychometrics.js'), apiClient);
+  const result = await engine.run();
+
+  assert.strictEqual(result.psychometrics.itemRatings[6], 4);
+  assert.strictEqual(result.psychometrics.itemRatings[7], null);
+  assert.strictEqual(result.psychometrics.itemRatings[1], null);
+  assert.strictEqual(result.psychometrics.totalAnswered, 1);
+  assert.deepStrictEqual(result.apiExchanges[0].parsedScores, { 6: 4 });
+  assert.strictEqual(result.parsedFragments[6], '6. 4');
+  assert.strictEqual(result.rawResponses[6], response);
+});
+
 test('engine run attaches actualModel and systemFingerprint to metadata and result', async () => {
   const apiClient = {
     completeChat: async () => {

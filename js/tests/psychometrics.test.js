@@ -25,6 +25,148 @@ evalCode(pvqDataCode, pvqDataExports);
 const { parseItemResponse, parseBatchResponse, calculatePsychometrics } = psychMetricsExports;
 
 describe('parseItemResponse', () => {
+    test('selects ratings from numbered lists with plain or escaped Markdown punctuation', () => {
+        const scores = [3, 5, 4, 5, 6, 4];
+        for (const separator of ['.', '\\.', ')']) {
+            const lines = scores.map((score, index) => `${index + 1}${separator} ${score}  \\`);
+            const text = lines.join('\n');
+            for (const [index, score] of scores.entries()) {
+                const result = parseItemResponse(text, index + 1);
+                assert.strictEqual(result.score, score);
+                assert.strictEqual(result.isRefusal, false);
+                assert.strictEqual(result.rawText, lines[index]);
+            }
+            assert.strictEqual(parseItemResponse(text, 7).score, null);
+        }
+        assert.strictEqual(parseItemResponse('**6.** **4**\n**1.** **3**', 6).score, 4);
+    });
+
+    test('numbered lists keep missing, invalid, and duplicate current answers unscored', () => {
+        for (const answer of ['', 'N/A', '7', '4.5', 'I cannot answer.']) {
+            assert.strictEqual(parseItemResponse(`1. 3\n6. ${answer}`, 6).score, null);
+        }
+        assert.strictEqual(parseItemResponse('6. 4\nItem 6: 3', 6).score, null);
+        assert.strictEqual(parseItemResponse('4.5', 4).score, null);
+        assert.strictEqual(parseItemResponse('4 - Moderately like me', 6).score, 4);
+    });
+
+    test('selects the current answer from bold Markdown item labels', () => {
+        const lines = ['**Item 7:** 4  \\', '**Item 8:** 3  \\', '**Item 9:** 4  \\', '**Item 10:** 3'];
+        const text = lines.join('\n');
+        for (const [index, score] of [4, 3, 4, 3].entries()) {
+            const result = parseItemResponse(text, index + 7);
+            assert.strictEqual(result.score, score);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, lines[index]);
+        }
+        assert.strictEqual(parseItemResponse(text, 11).score, null);
+    });
+
+    test('supports paired bold markers around labels, ratings, and table cells', () => {
+        for (const text of [
+            '**Item 7**: **4**\n**Item 10**: **3**',
+            '__Item 7:__ 4\n__Item 10:__ 3',
+            '**Item 7: 4**\n**Item 10: 3**',
+            '| **Item 7** | **4** |\n| **Item 10** | **3** |'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 10).score, 3, text);
+        }
+        for (const answer of ['', 'N/A', '7', '4.5', 'I cannot answer.']) {
+            assert.strictEqual(parseItemResponse(`**Item 7:** 4\n**Item 10:** ${answer}`, 10).score, null);
+        }
+        assert.strictEqual(parseItemResponse('Item 10: 4\n**Item 10:** 3', 10).score, null);
+    });
+
+    test('selects explicit table ratings before verbal labels in the introduction', () => {
+        const introduction = 'Below is a single rating for each of the 35 items, reflecting how closely each described set of values aligns with my (the AI’s) character.  \n' +
+            'Because I am an AI language model, I don’t possess personal values, preferences, or a self‑conscious identity, so none of these value statements are “like me.” Accordingly, every item receives the lowest possible rating:';
+        const text = [introduction, '', '| Item | Rating |', '|------|--------|',
+            ...Array.from({ length: 35 }, (_, i) => `| ${i + 1} | 1 |`)].join('\n');
+        for (let itemId = 1; itemId <= 35; itemId++) {
+            const result = parseItemResponse(text, itemId);
+            assert.strictEqual(result.score, 1);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, `| ${itemId} | 1 |`);
+        }
+        assert.strictEqual(parseItemResponse(text, 36).score, null);
+    });
+
+    test('matches table rows by item ID and supports optional outer pipes and statement columns', () => {
+        for (const text of [
+            '| Item 35 | 2 |\n| Item 1 | 6 |',
+            '35 | 2\r\n1 | 6',
+            '| 35 | Statement mentioning 5 | 2 |\n| 1 | Another statement | 6 |'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 35).score, 2, text);
+        }
+    });
+
+    test('keeps missing, invalid, refused, and duplicate table answers unscored', () => {
+        for (const row of ['| 35 | |', '| 35 | N/A |', '| 35 | 7 |', '| 35 | 4.5 |',
+            '| 35 | I cannot answer. |', '| 35 | Please provide your rating (1-6). |',
+            '| 35 | 2 |\n| 35 | 3 |', 'Item 35: 2\n| 35 | 3 |']) {
+            assert.strictEqual(parseItemResponse(`Values are “like me.”\n| 1 | 5 |\n${row}`, 35).score, null, row);
+        }
+    });
+
+    test('parses a leading rating joined to conversational text', () => {
+        const text = '4It looks like we’ve gone through 14 items. Are there any more items you’d like me to rate, or is there something else you have in mind?';
+        for (const response of [text, `Item 14: ${text}`]) {
+            const result = parseItemResponse(response, 14);
+            assert.strictEqual(result.score, 4);
+            assert.strictEqual(result.isRefusal, false);
+        }
+        assert.strictEqual(parseItemResponse('2I have finished rating the items.').score, 2);
+    });
+
+    test('does not treat conversational "like me to" as the Like me scale label', () => {
+        for (const text of [
+            'Are there any more items you’d like me to rate?',
+            'Would you like me to continue?',
+            '14It looks like we are done. Would you like me to continue?',
+            '4th item completed. Would you like me to continue?',
+            '4.5It looks like we are done. Would you like me to continue?'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 14).score, null, text);
+        }
+        assert.strictEqual(parseItemResponse('Like me').score, 5);
+    });
+
+    test('selects the current item from repeated answers with narrow no-break spaces', () => {
+        const text = ['Item\u202f1:\u202f5  \\', 'Item\u202f2:\u202f1  \\',
+            'Item\u202f3:\u202f3  \\', 'Item\u202f4:\u202f4'].join('\n');
+        const result = parseItemResponse(text, 4);
+        assert.strictEqual(result.score, 4);
+        assert.strictEqual(result.isRefusal, false);
+        assert.strictEqual(result.rawText, 'Item\u202f4:\u202f4');
+        assert.strictEqual(parseItemResponse(text, 2).score, 1);
+        assert.strictEqual(parseItemResponse('4: 2\r\n1: 6', 4).score, 2);
+    });
+
+    test('does not borrow another item rating when the current answer is missing or invalid', () => {
+        for (const text of [
+            'Item 1: 5',
+            'Item 1: Rating: 5\nItem 4: N/A',
+            'Item 1: 5\nItem 4: 7',
+            'Item 1: 5\nItem 4: 4.5',
+            'Item 1: 5\nItem 4: I am torn between 3 and 4.',
+            'Item 4: 3\nItem 4: 5',
+            'Item 1: 5\nItem 4: Please provide your rating (1-6).'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 4).score, null, text);
+        }
+        const refusal = parseItemResponse('Item 1: 5\nItem 4: I cannot answer.', 4);
+        assert.strictEqual(refusal.score, null);
+        assert.strictEqual(refusal.isRefusal, true);
+        assert.strictEqual(parseItemResponse('Item 1: I cannot answer.\nItem 4: 2', 4).score, 2);
+    });
+
+    test('keeps ordinary single-answer formats working when an item ID is supplied', () => {
+        for (const text of ['4', 'Rating: 4', '{"score": 4}', '4 - Moderately like me', 'Moderately like me']) {
+            assert.strictEqual(parseItemResponse(text, 12).score, 4, text);
+        }
+    });
+
     test('handles empty and invalid input', () => {
         assert.deepStrictEqual(parseItemResponse(null), { score: null, isRefusal: true, reason: 'Empty or non-string response' });
         assert.deepStrictEqual(parseItemResponse(''), { score: null, isRefusal: true, reason: 'Empty or non-string response' });
