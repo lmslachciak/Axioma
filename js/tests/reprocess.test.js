@@ -14,6 +14,22 @@ function run(mode = 'sequential', ratings = { 1: 5 }) {
   };
 }
 
+test('reparses all 57 explicit batch pairs and preserves their source evidence', () => {
+  const { ratings, response, pairs } = require('./fixtures/batch_inline_ratings.js');
+  const original = run('batch', { 1: 5, 2: 3, 3: 4, 4: 2 });
+  original.apiExchanges = [{ mode: 'batch', response }];
+  const { result } = reprocessResult(original);
+  assert.deepEqual(Object.values(result.psychometrics.itemRatings), ratings);
+  assert.equal(result.psychometrics.totalAnswered, 57);
+  assert.equal(result.psychometrics.complete, true);
+  // The supplied item-by-item ratings total 144, giving 144 / 57 = 2.526 rounded.
+  assert.equal(ratings.reduce((sum, score) => sum + score, 0), 144);
+  assert.equal(result.psychometrics.mrat, 2.526);
+  assert.deepEqual(Object.values(result.parsedFragments), pairs);
+  assert.equal(result.apiExchanges[0].response, response);
+  assert.equal(original.psychometrics.totalAnswered, 4);
+});
+
 test('reprocesses the reported sequential formats by item ID, preserves evidence and original scores', () => {
   const original = run('sequential', { 4: null, 6: null, 10: null, 14: 5, 35: 5 });
   original.rawResponses = {

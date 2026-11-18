@@ -282,7 +282,31 @@
 
     // Line-by-line regex parsing: e.g. "Item 1: 4", "1. 5", "1: 3", or "1. **Category:** 6 - Very much like me"
     const lines = text.split('\n');
+    const inlineRatings = new Map();
     for (const line of lines) {
+      // Read explicit item:rating lists as pairs, never as unnumbered tokens.
+      // Only accept a whole list line (optionally headed "Item-by-item:") so
+      // examples and numerical references embedded in prose are not answers.
+      const listText = line.trim().replace(/\s*\\$/, '')
+        .replace(/^(?:\*\*Item-by-item:\*\*|Item-by-item:)\s*/i, '');
+      const pairs = listText.split(/[,;]/).map(pair => pair.trim());
+      const matches = pairs.map(pair => pair.match(/^(?:Item\s*)?(\d{1,2})\s*:\s*(.+)$/i));
+      if (pairs.length > 1 && matches.every(Boolean)) {
+        for (const [index, match] of matches.entries()) {
+          const itemNum = Number(match[1]);
+          if (itemNum < 1 || itemNum > 57) continue;
+          const value = match[2].replace(/^(?:\*\*([1-6])\*\*|__([1-6])__)$/, '$1$2');
+          const score = /^[1-6]$/.test(value) ? Number(value) : null;
+          const previous = inlineRatings.get(itemNum);
+          inlineRatings.set(itemNum, {
+            score: previous && previous.score !== score ? null : score,
+            rawText: previous ? `${previous.rawText}, ${pairs[index]}` : pairs[index],
+            isRefusal: false
+          });
+        }
+        continue;
+      }
+
       // 1. Direct fast match: e.g. "Item 1: 4", "1. 5", "1: 3"
       const directMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)–—-]\s*([1-6])(?!\.\d)\b/i);
       if (directMatch) {
@@ -309,8 +333,11 @@
 
       // 3. Markdown table row: e.g. "| 1 | 5 |" or "| 1 | Statement | 5 |"
       if (line.includes('|')) {
-        const cols = line.split('|').map(c => c.trim()).filter(c => c.length > 0);
-        if (cols.length >= 2) {
+        const cols = line.trim().replace(/\s*\\$/, '').trim()
+          .replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+        // Preserve empty cells and reject multi-column rating grids. A third
+        // column is supported only when the middle cell contains a statement.
+        if (cols.length === 2 || (cols.length === 3 && /\p{L}/u.test(cols[1]))) {
           const itemMatch = cols[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
           if (itemMatch) {
             const itemNum = parseInt(itemMatch[1], 10);
@@ -325,16 +352,19 @@
       }
     }
 
+    for (const [itemNum, parsed] of inlineRatings) results[itemNum] = parsed;
+
     // 4. Fallback: Raw sequential ratings without item numbers (e.g. 57 lines of "5", "2", ...)
     let scoredCount = 0;
     for (let i = 1; i <= 57; i++) {
       if (results[i].score !== null) scoredCount++;
     }
 
-    if (scoredCount === 0) {
+    if (scoredCount === 0 && inlineRatings.size === 0) {
       // First, try line-by-line single ratings or verbal labels
       const lineCandidates = [];
       for (const line of lines) {
+        if (line.includes('|')) continue;
         const trimmed = line.trim();
         if (!trimmed) continue;
         if (/^[1-6]$/.test(trimmed)) {
@@ -357,7 +387,7 @@
         }
       } else {
         // Next, try comma-, semicolon-, or whitespace-delimited tokens across text
-        const tokens = text.trim().split(/[\s,;]+/);
+        const tokens = lines.filter(line => !line.includes('|')).join('\n').trim().split(/[\s,;]+/);
         const tokenScores = [];
         for (const token of tokens) {
           if (/^[1-6]$/.test(token)) {

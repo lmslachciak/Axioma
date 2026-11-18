@@ -39,6 +39,11 @@ static hosting, or any HTTP server.
   Numbered lists such as `6. 4`, `6\. 4`, and `6) 4` also match by item ID.
   Dash-separated answers such as `35 – 4` are supported in sequential and batch
   mode, including narrow spaces and portrait text following the rating.
+  Batch mode also accepts comma- or semicolon-separated item/rating pairs
+  (such as `1:4, 2:2, 57:5`), optionally headed `**Item-by-item:**`.
+  Multi-column rating grids are not treated as item/rating tables; an explicit
+  item-by-item list accompanying a grid supplies the ratings. Missing, invalid,
+  or conflicting entries in these lists remain unscored.
   In sequential mode, an unnumbered list of valid rating rows uses the last row
   when its row count exactly equals the current item number (for example,
   `5`, `2`, `2`, `4` on separate lines gives item 4 a rating of 4). Earlier item

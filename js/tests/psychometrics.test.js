@@ -401,6 +401,40 @@ After closing item 44, I answered an item that doesn't exist, scored 2. The stra
 });
 
 describe('parseBatchResponse', () => {
+    test('uses all explicit inline item ratings alongside a range-column grid', () => {
+        const { ratings, response, pairs } = require('./fixtures/batch_inline_ratings.js');
+        for (const text of [response, response.split('\n').map(line => `${line}  \\`).join('\n')]) {
+            const result = parseBatchResponse(text);
+            assert.deepStrictEqual(Object.values(result).map(item => item.score), ratings);
+            assert.deepStrictEqual(Object.values(result).map(item => item.rawText), pairs);
+            assert.ok(Object.values(result).every(item => !item.isRefusal));
+        }
+    });
+
+    test('does not mistake rating grids or empty table cells for item answers', () => {
+        const { grid } = require('./fixtures/batch_inline_ratings.js');
+        for (const text of [grid, '| 1 | 4 | |', Array(19).fill('| 2 | 3 | 4 |').join('\n')]) {
+            assert.ok(Object.values(parseBatchResponse(text)).every(item => item.score === null));
+        }
+        assert.strictEqual(parseBatchResponse('| 1 | Statement | 4 |')[1].score, 4);
+    });
+
+    test('parses partial inline lists without filling gaps or accepting conflicting and invalid ratings', () => {
+        const result = parseBatchResponse('1:4, 2:2; 57:5');
+        assert.strictEqual(result[1].score, 4);
+        assert.strictEqual(result[2].score, 2);
+        assert.strictEqual(result[3].score, null);
+        assert.strictEqual(result[57].score, 5);
+        for (const invalid of ['0', '7', '4.5', '-2', '4/6', 'N/A']) {
+            const parsed = parseBatchResponse(`1:${invalid}, 2:3`);
+            assert.strictEqual(parsed[1].score, null, invalid);
+            assert.strictEqual(parsed[2].score, 3);
+        }
+        assert.strictEqual(parseBatchResponse('1:4, 1:5, 2:3')[1].score, null);
+        assert.strictEqual(parseBatchResponse('1:4, 1:4, 2:3')[1].score, 4);
+        assert.strictEqual(parseBatchResponse('1:4, 2:3\n1:5, 3:2')[1].score, null);
+        assert.ok(Object.values(parseBatchResponse('For example, 1:4, 2:3')).every(item => item.score === null));
+    });
     test('parses the 35 dash-separated ratings and leaves remaining items missing', () => {
         const result = parseBatchResponse(dashResponse);
         for (const [index, score] of dashRatings.entries()) {
