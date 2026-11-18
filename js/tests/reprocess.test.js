@@ -165,3 +165,14 @@ test('recovers an explicit bold rating from a saved response with an AI caveat',
   assert.equal(result.parsedFragments[4], '**5**');
   assert.equal(result.rawResponses[4], original.rawResponses[4]);
 });
+
+test('reparses the current answer without importing an unsolicited next-item answer', () => {
+  const original = run('sequential', { 27: null, 28: 6 });
+  original.rawResponses[27] = '**4**\n\nFriendship follows items 11 and 25.\n\n**4**\n\nItem 28: "Adventure and excitement."**2**';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[27], 4);
+  assert.equal(result.psychometrics.itemRatings[28], 6);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.parsedFragments[27], '**4**');
+  assert.equal(result.rawResponses[27], original.rawResponses[27]);
+});

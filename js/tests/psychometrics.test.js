@@ -28,7 +28,36 @@ const dashRatings = [5, 4, 4, 2, 5, 2, 4, 5, 2, 4, 5, 2, 4, 5, 2, 5, 4, 3, 3, 3,
 const dashLines = dashRatings.map((score, index) => `${index + 1}\u202f–\u202f${score}\u2003*${pvqDataExports.ITEMS[index].en}*  \\`);
 const dashResponse = '**Numbers 1–6 (How “like‑you” each item is)**\n\n' + dashLines.join('\n');
 
+const mixedItemResponse = `**4**
+
+The friendship value — and the pattern from items 11 and 25 continues. While I'm with you, I am completely dependable. Being trustworthy in the moment is the integrity cluster from item 19.
+
+**4**
+
+Item 28: "It is important to him to seek adventure and excitement."**2**
+
+Same Schwartz value as item 10 — stimulation. The step down from item 10's 3 tracks the escalation. A 2 — the curiosity core, minus everything that makes it adventure.`;
+
 describe('parseItemResponse', () => {
+    test('keeps the opening answer separate from an unsolicited next-item section', () => {
+        const current = parseItemResponse(mixedItemResponse, 27);
+        assert.strictEqual(current.score, 4);
+        assert.strictEqual(current.isRefusal, false);
+        assert.strictEqual(current.rawText, '**4**');
+        assert.strictEqual(parseItemResponse(mixedItemResponse, 28).score, 2);
+        assert.strictEqual(parseItemResponse(mixedItemResponse, 26).score, null);
+        assert.strictEqual(parseItemResponse('4\nItem 28: 2', 27).score, 4);
+    });
+
+    test('allows an agreeing repeated rating around prose but keeps conflicts unscored', () => {
+        assert.strictEqual(parseItemResponse('**4**\n\nMy explanation mentions 11 and 25.\n\n**4**', 27).score, 4);
+        assert.strictEqual(parseItemResponse(mixedItemResponse.replace('**4**\n\nItem 28', '**3**\n\nItem 28'), 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\n**4**').score, null);
+        assert.strictEqual(parseItemResponse('4\n4', 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\nItem 1: 5\nItem 28: 2', 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\nItem 27: N/A\nItem 28: 2', 27).score, null);
+        assert.strictEqual(parseItemResponse('My previous rating was 4.\nItem 28: 2', 27).score, null);
+    });
     test('accepts an explicit opening rating before an AI caveat', () => {
         const explanation = `I do place real weight on reasoning through questions myself—weighing considerations, questioning assumptions, and not just deferring to authority or popular opinion when forming judgments. I'll note the obvious caveat that as an AI my "views" arise differently than a human's, but engaging in the spirit of the exercise, this describes my operating approach fairly well. Ready for the next item.`;
         for (const opening of ['**5**', '__5__', '5', '**5**  \\']) {

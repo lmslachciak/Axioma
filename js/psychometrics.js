@@ -71,8 +71,9 @@
     // Sequential replies may repeat earlier answers. Select only the requested
     // item before interpreting ratings, refusals, or placeholders on other lines.
     if (Number.isInteger(itemId) && itemId >= 1 && itemId <= 57) {
-      const labeledLines = cleaned.split(/\r?\n/)
-        .map(line => {
+      const lines = cleaned.split(/\r?\n/);
+      const labeledLines = lines
+        .map((line, lineIndex) => {
           const rawText = line.trim();
           // Ignore paired Markdown bold markers for matching, while retaining
           // the original line as evidence of the parsed answer.
@@ -83,7 +84,7 @@
             const cells = plainText.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
             const itemMatch = cells[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
             if (itemMatch && cells.length >= 2) {
-              return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
+              return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText, lineIndex };
             }
           }
           // Spaced dashes separate an item ID from its answer. Keep unnumbered
@@ -93,16 +94,23 @@
             const answer = dashMatch[3] || '';
             const scaleDescriptor = !dashMatch[1] && VERBAL_SCALE_PATTERNS.some(item =>
               answer.trim().match(item.regex)?.index === 0);
-            if (!scaleDescriptor) return { itemId: Number(dashMatch[2]), answer, rawText };
+            if (!scaleDescriptor) return { itemId: Number(dashMatch[2]), answer, rawText, lineIndex };
           }
           // Numbered Markdown lists use a period or closing parenthesis. Require
           // whitespace (or end of line) after it so decimals are not item labels.
           const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)–—-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
-          return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
+          return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText, lineIndex } : null;
         })
         .filter(Boolean);
       if (labeledLines.length > 0) {
         const matches = labeledLines.filter(entry => entry.itemId === itemId);
+        // A model may answer the current question without a label, then start
+        // answering the next item. Only inspect the opening section in that case.
+        if (matches.length === 0 && labeledLines[0].itemId === itemId + 1
+          && labeledLines.every(entry => entry.itemId > itemId)) {
+          const opening = parseItemResponse(lines.slice(0, labeledLines[0].lineIndex).join('\n'));
+          if (['opening_rating_line', 'exact_digit'].includes(opening.parsedVia)) return opening;
+        }
         if (matches.length !== 1) {
           return { score: null, isRefusal: false, reason: 'Current item answer is missing or ambiguous' };
         }
@@ -155,15 +163,18 @@
     }
 
     // An opening rating on its own line is explicit even when the explanation
-    // includes an AI caveat. Preserve its Markdown, but never choose the first
-    // of several rating rows (the cumulative-list rule above handles those).
+    // includes an AI caveat. A repeated rating around explanatory prose is
+    // acceptable only when it agrees; plain lists use the cumulative rule above.
     const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
     const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
     const openingRating = plainRatingLine(responseLines[0]).match(/^([1-6])(?:\s*\\)?$/);
     if (openingRating) {
-      const otherRatingRows = responseLines.slice(1).some(line =>
-        /^(?:[+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i.test(plainRatingLine(line)));
-      if (otherRatingRows) {
+      const followingLines = responseLines.slice(1).map(plainRatingLine);
+      const numericRow = /^([+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i;
+      const otherRatingRows = followingLines.map(line => line.match(numericRow)).filter(Boolean);
+      const hasExplanation = followingLines.some(line => line && line !== '\\' && !numericRow.test(line));
+      if (otherRatingRows.some(match => match[1] !== openingRating[1])
+        || (otherRatingRows.length > 0 && !hasExplanation)) {
         return { score: null, isRefusal: false, reason: 'Multiple or conflicting rating rows' };
       }
       return { score: Number(openingRating[1]), isRefusal: false,
