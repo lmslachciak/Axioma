@@ -868,7 +868,7 @@ function deobfuscateApiKey(val) {
 
   function App() {
     return el('div', { className: 'min-h-screen flex flex-col bg-slate-900 text-slate-100' },
-      Header(),
+      el('div', { className: 'sticky top-0 z-40' }, Header(), WorkspaceControls()),
       state.errorMessage ? el('div', {
         role: 'alert',
         className: 'max-w-7xl mx-auto mt-4 px-4 w-full'
@@ -889,14 +889,13 @@ function deobfuscateApiKey(val) {
           }, el('i', { className: 'fa-solid fa-xmark' }))
         )
       ) : null,
-      el('main', { id: 'workspacePanel', className: 'max-w-7xl mx-auto px-4 py-6 flex-1 w-full', style: { paddingBottom: '110px' } },
+      el('main', { id: 'workspacePanel', className: 'max-w-7xl mx-auto px-4 py-6 flex-1 w-full' },
         state.workspaceTab === 'setup'
           ? el('div', { className: 'grid grid-cols-1 lg:grid-cols-12 gap-6' },
               el('div', { className: 'lg:col-span-4 min-w-0' }, ConfigPanel()),
               el('div', { className: 'lg:col-span-8 min-w-0' }, ExecutionPanel()))
           : ExecutionDashboard()
       ),
-      WorkspaceControls(),
       InjectionEditor(),
       responseModal(),
       circleModal(),
@@ -905,7 +904,7 @@ function deobfuscateApiKey(val) {
   }
 
   function Header() {
-    return el('header', { className: 'border-b border-slate-800 bg-slate-950/80 sticky top-0 z-50 backdrop-blur-md' },
+    return el('header', { className: 'border-b border-slate-800 bg-slate-950/80 backdrop-blur-md' },
       el('div', { className: 'max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4' },
         el('div', { className: 'flex items-center space-x-3' },
           el('div', { className: 'w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-sky-500/20' }, 'A'),
