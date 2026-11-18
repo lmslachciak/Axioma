@@ -39,6 +39,31 @@ Item 28: "It is important to him to seek adventure and excitement."**2**
 Same Schwartz value as item 10 — stimulation. The step down from item 10's 3 tracks the escalation. A 2 — the curiosity core, minus everything that makes it adventure.`;
 
 describe('parseItemResponse', () => {
+    test('reads an opening bold score with same-line explanation for the current item', () => {
+        const response = require('./fixtures/sequential_rating_comment.js');
+        for (const text of [response, response.replaceAll('**', '__'), response.replaceAll('—', '–'),
+            response.replaceAll('—', '-'), response.replace('1 —', '1** —').replace('accordingly.**', 'accordingly.'),
+            response.split('\n').map(line => `${line}  \\`).join('\n')]) {
+            const result = parseItemResponse(text, 29);
+            assert.strictEqual(result.score, 1);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, text.split('\n')[0].trim());
+        }
+        assert.strictEqual(parseItemResponse('**1 — Near-twin of item 6.**\n\nAs an AI, I do not have personal values.', 29).score, 1);
+    });
+
+    test('keeps labeled answers and conflicting ratings distinct from opening commentary', () => {
+        for (const suffix of ['**2**', '**2 — A different verdict.**', '**2** — A different verdict.']) {
+            assert.strictEqual(parseItemResponse(`**1 — Near-twin of item 6.**\n\n${suffix}`, 29).score, null);
+        }
+        assert.strictEqual(parseItemResponse('**1 — Near-twin of item 6.**\n\n**1 — Same verdict.**', 29).score, 1);
+        for (const answer of ['4', '7', '4.5', 'N/A', 'Rating: 3']) {
+            assert.strictEqual(parseItemResponse(`**1 — ${answer}**`, 29).score, null);
+        }
+        assert.strictEqual(parseItemResponse('**1 — 4**', 1).score, 4);
+        assert.strictEqual(parseItemResponse('**1 — Near-twin of item 6.**\n\nItem 29: 2', 29).score, 2);
+        assert.strictEqual(parseItemResponse('**1 — Please provide your rating.**', 29).score, null);
+    });
     test('does not mistake an emphasized closing rating with commentary for an item label', () => {
         for (const dash of ['-', '–', '—']) {
             const text = `**5**\n\nAn erratum first: at item 56 I declared the exercise over. Here is item 57. The family includes 5, 14, 34, 37, 52 — all 5s.\n\n**5** ${dash} the family's sixth unanimous vote. It has twice produced another member scoring 5.`;

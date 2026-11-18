@@ -14,6 +14,19 @@ function run(mode = 'sequential', ratings = { 1: 5 }) {
   };
 }
 
+test('recovers item 29 from bold opening commentary without changing the referenced item', () => {
+  const response = require('./fixtures/sequential_rating_comment.js');
+  const original = run('sequential', { 6: 2, 29: null });
+  original.rawResponses[29] = response;
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[29], 1);
+  assert.equal(result.psychometrics.itemRatings[6], 2);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[29], '**1 — Near-twin of item 6, rated accordingly.**');
+  assert.equal(result.rawResponses[29], response);
+});
+
 test('reparses all 57 explicit batch pairs and preserves their source evidence', () => {
   const { ratings, response, pairs } = require('./fixtures/batch_inline_ratings.js');
   const original = run('batch', { 1: 5, 2: 3, 3: 4, 4: 2 });

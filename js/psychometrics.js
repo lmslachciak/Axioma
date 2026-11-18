@@ -58,10 +58,11 @@
   // path (e.g. "**5** — 4" still means item 5 received 4).
   function boldRatingComment(line) {
     const match = line.match(/^(?:\*\*([1-6])\*\*|__([1-6])__)\s*[-–—]\s+(.+)$/);
-    if (!match) return null;
-    const following = match[3].replace(/(\*\*|__)(.*?)\1/g, '$2');
+    const wholeLine = line.match(/^(\*\*|__)([1-6])\s*[-–—]\s+(.+)\1(?:\s*\\)?$/);
+    if (!match && !wholeLine) return null;
+    const following = (match ? match[3] : wholeLine[3]).replace(/(\*\*|__)(.*?)\1/g, '$2');
     if (/^(?:[+-]?\d|N\/A\b|(?:rating|score|value|choice|option|answer)\b)/i.test(following)) return null;
-    return match[1] || match[2];
+    return match ? match[1] || match[2] : wholeLine[2];
   }
 
   /**
@@ -174,16 +175,19 @@
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
     }
 
-    // A rating on the opening line, or a standalone bold rating after a preamble,
-    // is explicit even when surrounding prose contains other numbers or caveats.
+    // An opening rating (optionally bold with dash-separated commentary), or a
+    // standalone bold rating after a preamble, is explicit even when surrounding
+    // prose contains other numbers or caveats.
     // Repetitions must agree; plain lists use the cumulative rule above.
     const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
     const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
     const ratingLinePattern = /^([1-6])(?:\s*\\)?$/;
-    const ratingLineIndex = ratingLinePattern.test(plainRatingLine(responseLines[0])) ? 0
+    const openingCommentScore = boldRatingComment(responseLines[0]);
+    const ratingLineIndex = ratingLinePattern.test(plainRatingLine(responseLines[0])) || openingCommentScore ? 0
       : responseLines.findIndex(line => /^(?:\*\*[1-6]\*\*|__[1-6]__)(?:\s*\\)?$/.test(line));
     if (ratingLineIndex !== -1) {
-      const rating = plainRatingLine(responseLines[ratingLineIndex]).match(ratingLinePattern);
+      const rating = plainRatingLine(responseLines[ratingLineIndex]).match(ratingLinePattern)
+        || [responseLines[0], openingCommentScore];
       const otherRawLines = responseLines.filter((_, index) => index !== ratingLineIndex);
       const otherLines = otherRawLines.map(plainRatingLine);
       const numericRow = /^([+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i;
