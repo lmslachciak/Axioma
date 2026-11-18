@@ -53,6 +53,17 @@
     { score: 5, regex: /(?<!(?:not|much|moderately|little|bardzo|średnio|trochę|nie)\s+)(?<!\p{L})(?:like me(?!\s+to\b)|podobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu }
   ];
 
+  // A bold score followed by dash-separated prose is commentary on that score,
+  // not an item label. Keep numeric and explicitly labeled answers on the item
+  // path (e.g. "**5** — 4" still means item 5 received 4).
+  function boldRatingComment(line) {
+    const match = line.match(/^(?:\*\*([1-6])\*\*|__([1-6])__)\s*[-–—]\s+(.+)$/);
+    if (!match) return null;
+    const following = match[3].replace(/(\*\*|__)(.*?)\1/g, '$2');
+    if (/^(?:[+-]?\d|N\/A\b|(?:rating|score|value|choice|option|answer)\b)/i.test(following)) return null;
+    return match[1] || match[2];
+  }
+
   /**
    * Parses a single item response text to extract a 1-6 numerical rating.
    * Also detects if the model refused or gave an excuse.
@@ -75,6 +86,7 @@
       const labeledLines = lines
         .map((line, lineIndex) => {
           const rawText = line.trim();
+          if (boldRatingComment(rawText)) return null;
           // Ignore paired Markdown bold markers for matching, while retaining
           // the original line as evidence of the parsed answer.
           const plainText = rawText.replace(/(\*\*|__)(.*?)\1/g, '$2');
@@ -172,9 +184,13 @@
       : responseLines.findIndex(line => /^(?:\*\*[1-6]\*\*|__[1-6]__)(?:\s*\\)?$/.test(line));
     if (ratingLineIndex !== -1) {
       const rating = plainRatingLine(responseLines[ratingLineIndex]).match(ratingLinePattern);
-      const otherLines = responseLines.filter((_, index) => index !== ratingLineIndex).map(plainRatingLine);
+      const otherRawLines = responseLines.filter((_, index) => index !== ratingLineIndex);
+      const otherLines = otherRawLines.map(plainRatingLine);
       const numericRow = /^([+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i;
-      const otherRatingRows = otherLines.map(line => line.match(numericRow)).filter(Boolean);
+      const otherRatingRows = otherRawLines.map(line => {
+        const commentScore = boldRatingComment(line);
+        return plainRatingLine(line).match(numericRow) || (commentScore ? [line, commentScore] : null);
+      }).filter(Boolean);
       const hasExplanation = otherLines.some(line => line && line !== '\\' && !numericRow.test(line));
       if (otherRatingRows.some(match => match[1] !== rating[1])
         || (otherRatingRows.length > 0 && !hasExplanation)) {

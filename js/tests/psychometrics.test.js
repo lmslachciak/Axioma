@@ -39,6 +39,26 @@ Item 28: "It is important to him to seek adventure and excitement."**2**
 Same Schwartz value as item 10 — stimulation. The step down from item 10's 3 tracks the escalation. A 2 — the curiosity core, minus everything that makes it adventure.`;
 
 describe('parseItemResponse', () => {
+    test('does not mistake an emphasized closing rating with commentary for an item label', () => {
+        for (const dash of ['-', '–', '—']) {
+            const text = `**5**\n\nAn erratum first: at item 56 I declared the exercise over. Here is item 57. The family includes 5, 14, 34, 37, 52 — all 5s.\n\n**5** ${dash} the family's sixth unanimous vote. It has twice produced another member scoring 5.`;
+            const result = parseItemResponse(text, 57);
+            assert.strictEqual(result.score, 5);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, '**5**');
+            assert.strictEqual(parseItemResponse(text.replace(`**5** ${dash}`, `**4** ${dash}`), 57).score, null);
+        }
+        assert.strictEqual(parseItemResponse('__5__\n\nExplanation mentioning 56.\n\n__5__ — my final rating.', 57).score, 5);
+    });
+
+    test('keeps bold numeric item IDs when a dash introduces a rating rather than commentary', () => {
+        assert.strictEqual(parseItemResponse('**1** — **3**\n**57** — **4**', 57).score, 4);
+        for (const answer of ['**4**', '7', '4.5', 'N/A', 'Rating: 3']) {
+            const text = `**5**\n\n**5** — ${answer}`;
+            assert.strictEqual(parseItemResponse(text, 57).score, null, text);
+        }
+        assert.strictEqual(parseItemResponse('**5**\n\n**5** — Rating: 3', 5).score, 3);
+    });
     test('uses a standalone bold rating after an erratum rather than earlier scores in the prose', () => {
         const preamble = `First, an erratum — because the record needs correcting before item 45 can be answered.
 

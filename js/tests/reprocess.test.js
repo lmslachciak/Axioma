@@ -189,3 +189,15 @@ test('reparses a bold rating after an erratum without revising earlier item rati
   assert.equal(result.parsedFragments[45], '**4**');
   assert.equal(result.rawResponses[45], original.rawResponses[45]);
 });
+
+test('recovers item 57 from agreeing opening and closing ratings without revising item 5', () => {
+  const original = run('sequential', { 5: 2, 57: null });
+  original.rawResponses[57] = "**5**\n\nAn erratum about item 56; the family includes 5, 14, 34, 37, 52.\n\n**5** — the family's sixth unanimous vote.";
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[57], 5);
+  assert.equal(result.psychometrics.itemRatings[5], 2);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[57], '**5**');
+  assert.equal(result.rawResponses[57], original.rawResponses[57]);
+});

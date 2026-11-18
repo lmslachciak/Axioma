@@ -50,8 +50,10 @@ static hosting, or any HTTP server.
   when standalone rating lines agree. Numbers and corrections embedded in prose
   do not revise other items' saved ratings.
   An opening rating repeated after explanatory prose is accepted when both
-  ratings agree. If an unlabeled answer is followed by a section explicitly
-  labeled for the next item, sequential parsing uses only the opening section
+  ratings agree, including a bold closing rating followed by dash-separated
+  commentary (such as `**5** — my final rating`). Numeric item rows such as
+  `**5** — 4` remain item labels. If an unlabeled answer is followed by a section
+  explicitly labeled for the next item, sequential parsing uses only the opening section
   for the current item; the unsolicited next answer does not fill another item.
   A leading rating joined to a capitalized sentence (such as `4It looks...`) is
   recognized; conversational “like me to rate” is not treated as the “Like me” label.
