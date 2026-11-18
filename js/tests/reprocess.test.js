@@ -176,3 +176,16 @@ test('reparses the current answer without importing an unsolicited next-item ans
   assert.equal(result.parsedFragments[27], '**4**');
   assert.equal(result.rawResponses[27], original.rawResponses[27]);
 });
+
+test('reparses a bold rating after an erratum without revising earlier item ratings', () => {
+  const original = run('sequential', { 13: 5, 44: 3, 45: null });
+  original.rawResponses[45] = 'First, an erratum. The stray item was scored 2; item 13 was 2. Now, the actual item.\n\n**4**\n\nWhy 4 rather than 5: practice. The family closes: **5, 4, 5, 5, 5, 4**.';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[45], 4);
+  assert.equal(result.psychometrics.itemRatings[44], 3);
+  assert.equal(result.psychometrics.itemRatings[13], 5);
+  assert.equal(result.psychometrics.totalAnswered, 3);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[45], '**4**');
+  assert.equal(result.rawResponses[45], original.rawResponses[45]);
+});

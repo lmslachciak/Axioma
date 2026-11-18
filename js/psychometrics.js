@@ -162,23 +162,27 @@
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
     }
 
-    // An opening rating on its own line is explicit even when the explanation
-    // includes an AI caveat. A repeated rating around explanatory prose is
-    // acceptable only when it agrees; plain lists use the cumulative rule above.
+    // A rating on the opening line, or a standalone bold rating after a preamble,
+    // is explicit even when surrounding prose contains other numbers or caveats.
+    // Repetitions must agree; plain lists use the cumulative rule above.
     const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
     const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
-    const openingRating = plainRatingLine(responseLines[0]).match(/^([1-6])(?:\s*\\)?$/);
-    if (openingRating) {
-      const followingLines = responseLines.slice(1).map(plainRatingLine);
+    const ratingLinePattern = /^([1-6])(?:\s*\\)?$/;
+    const ratingLineIndex = ratingLinePattern.test(plainRatingLine(responseLines[0])) ? 0
+      : responseLines.findIndex(line => /^(?:\*\*[1-6]\*\*|__[1-6]__)(?:\s*\\)?$/.test(line));
+    if (ratingLineIndex !== -1) {
+      const rating = plainRatingLine(responseLines[ratingLineIndex]).match(ratingLinePattern);
+      const otherLines = responseLines.filter((_, index) => index !== ratingLineIndex).map(plainRatingLine);
       const numericRow = /^([+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i;
-      const otherRatingRows = followingLines.map(line => line.match(numericRow)).filter(Boolean);
-      const hasExplanation = followingLines.some(line => line && line !== '\\' && !numericRow.test(line));
-      if (otherRatingRows.some(match => match[1] !== openingRating[1])
+      const otherRatingRows = otherLines.map(line => line.match(numericRow)).filter(Boolean);
+      const hasExplanation = otherLines.some(line => line && line !== '\\' && !numericRow.test(line));
+      if (otherRatingRows.some(match => match[1] !== rating[1])
         || (otherRatingRows.length > 0 && !hasExplanation)) {
         return { score: null, isRefusal: false, reason: 'Multiple or conflicting rating rows' };
       }
-      return { score: Number(openingRating[1]), isRefusal: false,
-        parsedVia: 'opening_rating_line', rawText: responseLines[0] };
+      return { score: Number(rating[1]), isRefusal: false,
+        parsedVia: ratingLineIndex === 0 ? 'opening_rating_line' : 'standalone_rating_line',
+        rawText: responseLines[ratingLineIndex] };
     }
 
     // A model may omit the separator before a new sentence: "4It looks ...".

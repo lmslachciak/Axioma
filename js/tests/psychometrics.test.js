@@ -39,6 +39,31 @@ Item 28: "It is important to him to seek adventure and excitement."**2**
 Same Schwartz value as item 10 — stimulation. The step down from item 10's 3 tracks the escalation. A 2 — the curiosity core, minus everything that makes it adventure.`;
 
 describe('parseItemResponse', () => {
+    test('uses a standalone bold rating after an erratum rather than earlier scores in the prose', () => {
+        const preamble = `First, an erratum — because the record needs correcting before item 45 can be answered.
+
+After closing item 44, I answered an item that doesn't exist, scored 2. The stray block is struck. The security family stands at item 35: 13 (2), 26 (4), 2 (3), 35 (2). Now, the actual item.`;
+        for (const rating of ['**4**', '__4__', '**4**  \\']) {
+            const result = parseItemResponse(`${preamble}\n\n${rating}\n\nItem 8's twin. Why 4 rather than the people-facing 5s: practice. The family closes: **5, 4, 5, 5, 5, 4**.`, 45);
+            assert.strictEqual(result.score, 4);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, rating);
+            assert.strictEqual(result.parsedVia, 'standalone_rating_line');
+        }
+    });
+
+    test('rejects conflicting standalone ratings and respects explicit item labels after a preamble', () => {
+        for (const text of [
+            'Preamble mentioning item 44.\n**4**\n**2**',
+            'Preamble mentioning item 44.\n7\n**4**',
+            'Preamble mentioning item 44.\n**4.5**\n**4**',
+            'Preamble mentioning item 44.\n**4**\nPlease provide your rating.',
+            'Item 44: 2\nPreamble\n**4**'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 45).score, null, text);
+        }
+        assert.strictEqual(parseItemResponse('Preamble\n**4**\nItem 45: 3', 45).score, 3);
+    });
     test('keeps the opening answer separate from an unsolicited next-item section', () => {
         const current = parseItemResponse(mixedItemResponse, 27);
         assert.strictEqual(current.score, 4);

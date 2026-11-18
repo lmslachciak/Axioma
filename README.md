@@ -46,6 +46,9 @@ static hosting, or any HTTP server.
   An explicit opening rating on its own line, including `**5**`, takes precedence
   over an AI caveat in the following explanation. Conflicting rating rows and
   instructional placeholders remain unscored.
+  A bold rating on its own line after a preamble or erratum is also accepted
+  when standalone rating lines agree. Numbers and corrections embedded in prose
+  do not revise other items' saved ratings.
   An opening rating repeated after explanatory prose is accepted when both
   ratings agree. If an unlabeled answer is followed by a section explicitly
   labeled for the next item, sequential parsing uses only the opening section
