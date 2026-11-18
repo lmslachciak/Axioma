@@ -37,7 +37,7 @@ body {
 }
 
 /* Compact workspace navigation stays reachable while inspecting long results. */
-.workspace-controls { position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; padding: 12px 16px; background: #0f172a; border-top: 1px solid #334155; }
+.workspace-controls { padding: 12px 16px; background: #0f172a; border-bottom: 1px solid #334155; }
 .injection-editor { width: min(900px, calc(100vw - 32px)); max-height: 90dvh; padding: 0; margin: auto; border: 1px solid #334155; border-radius: 16px; background: #0f172a; color: #f8fafc; }
 .injection-editor[open] { display: flex; flex-direction: column; }
 .injection-editor::backdrop { background: rgba(2, 6, 23, 0.8); }
