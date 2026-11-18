@@ -91,6 +91,31 @@ static hosting, or any HTTP server.
 4. Choose the evaluation mode, temperature, seed and item order.
 5. Press **Start** — live progress, charts and export options appear as the run completes.
 
+## Reparse saved answers
+
+Loading a session CSV or XLSX retains its saved item ratings and recalculates the
+profile from those ratings. To apply the current answer parser to older results,
+open **Results** and click **Reparse answers** next to the iteration selector.
+This reparses all runs in the current session from saved raw responses, updates
+ratings and parsing fragments, and recalculates their profiles without API calls.
+The status message reports how many answers were reparsed and ratings changed.
+**Undo reparse** restores the session before the last reparse; this undo is cleared
+when starting an evaluation, loading a file, or starting a new session.
+
+Missing, truncated, or ambiguous raw response records retain their saved ratings;
+they are reported as retained items. A complete response that the parser cannot
+interpret becomes unscored. Batch runs require the complete batch response, not
+per-item parsing fragments. Sequential responses are matched by item ID.
+Supplied intervention answers and original conversation history are preserved;
+target ratings and the separate combined profile are recalculated. Donor snapshots
+remain as recorded. Existing files are never overwritten by the reparse action.
+
+Save the session again to export corrected results. CSV and XLSX retain the
+reprocessing time, parser application version, original ratings, and affected
+item IDs in the existing chunked records, as does JSON. The original run version
+and model metadata remain unchanged. Reloading retains the corrected scores;
+reparsing always requires the explicit action.
+
 ## Context interventions
 
 In **Sequential Mode**, choose a **Context intervention** in the evaluation

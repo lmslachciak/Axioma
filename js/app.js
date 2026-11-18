@@ -136,6 +136,7 @@ function deobfuscateApiKey(val) {
     // Results State
     results: null,
     sessionResults: [],
+    reparseUndo: null,
     selectedResponse: null,
     responseCopyStatus: '',
     showCircleModal: false,
@@ -694,6 +695,36 @@ function deobfuscateApiKey(val) {
     };
   }
 
+  function reparseSessionAnswers() {
+    if (state.isRunning || !state.sessionResults.length) return;
+    try {
+      const selectedIndex = Math.max(0, state.sessionResults.indexOf(state.results));
+      const processed = window.ResultReprocessor.reprocessSession(state.sessionResults);
+      if (processed.reparsed) {
+        state.reparseUndo = state.sessionResults;
+        state.sessionResults = processed.results;
+        state.results = processed.results[selectedIndex];
+        state.selectedResponse = null;
+      }
+      state.progressStatus = `Reparsed ${processed.reparsed} answers; ${processed.changed} ratings changed. ${processed.retained} items retained because complete raw answers were unavailable.`;
+      state.errorMessage = '';
+    } catch (err) {
+      state.errorMessage = `Could not reparse session: ${err.message}`;
+    }
+    renderApp();
+  }
+
+  function undoReparse() {
+    if (state.isRunning || !state.reparseUndo) return;
+    const selectedIndex = Math.max(0, state.sessionResults.indexOf(state.results));
+    state.sessionResults = state.reparseUndo;
+    state.results = state.sessionResults[selectedIndex];
+    state.reparseUndo = null;
+    state.selectedResponse = null;
+    state.progressStatus = 'Restored results from before the last reparse.';
+    renderApp();
+  }
+
   async function startEvaluation() {
     if (state.isRunning) return;
     let config;
@@ -709,6 +740,7 @@ function deobfuscateApiKey(val) {
     state.workspaceTab = 'results';
     state.showInjectionEditor = false;
     state.isRunning = true;
+    state.reparseUndo = null;
     state.errorMessage = '';
     renderApp();
     const iterations = config.iterations;
@@ -936,6 +968,7 @@ function deobfuscateApiKey(val) {
               const confirmed = window.confirm("Are you sure you want to start a new session? All current session evaluation data will be lost.");
               if (confirmed) {
                 state.sessionResults = [];
+                state.reparseUndo = null;
                 state.results = null;
                 state.completedCount = 0;
                 state.suppliedCount = 0;
@@ -959,6 +992,7 @@ function deobfuscateApiKey(val) {
               window.DataExporter.importSessionFromFile(file, results => {
                 if (results && results.length > 0) {
                   state.sessionResults = results;
+                  state.reparseUndo = null;
                   state.results = results[0];
                   state.tokenUsage = state.results.tokenUsage;
                   state.selectedDonor = null;
@@ -1382,7 +1416,7 @@ function deobfuscateApiKey(val) {
           )
         ),
 
-        state.sessionResults.length > 0 ? el('div', { className: 'mt-4 flex items-center space-x-2' },
+        state.sessionResults.length > 0 ? el('div', { className: 'mt-4 flex flex-wrap items-center gap-2' },
           el('span', { className: 'text-xs text-slate-400' }, 'View Iteration:'),
           el('select', {
             className: 'bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-200 focus:outline-none focus:border-sky-500',
@@ -1401,7 +1435,16 @@ function deobfuscateApiKey(val) {
             const modelLabel = r.metadata?.actualModel || r.metadata?.config?.model || '';
             const labelStr = modelLabel ? `${modelLabel} - ` : '';
             return el('option', { value: i }, `Run ${i + 1} (${labelStr}${new Date(r.metadata.timestamp).toLocaleTimeString()})`);
-          }))
+          })),
+          el('button', {
+            type: 'button', disabled: state.isRunning, onClick: reparseSessionAnswers,
+            title: 'Reparse every run in this session from saved raw answers. No API requests are made.',
+            className: 'text-xs text-sky-300 border border-slate-700 rounded-lg px-3 py-1 disabled:opacity-40'
+          }, 'Reparse answers'),
+          state.reparseUndo ? el('button', {
+            type: 'button', disabled: state.isRunning, onClick: undoReparse,
+            className: 'text-xs text-slate-300 border border-slate-700 rounded-lg px-3 py-1 disabled:opacity-40'
+          }, 'Undo reparse') : null
         ) : null,
         el('div', { className: 'grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950/50 p-3 rounded-xl border border-slate-800/80' },
           el('div', {}, el('p', { className: 'text-[10px] uppercase font-bold text-slate-500' }, 'Input Tokens'), el('p', { className: 'text-sm font-bold code-font text-sky-400' }, state.tokenUsage.promptTokens.toLocaleString())),

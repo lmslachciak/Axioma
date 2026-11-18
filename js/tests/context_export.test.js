@@ -13,6 +13,7 @@ global.document = { createElement: () => ({ click() {} }), body: { appendChild()
 global.alert = message => { throw new Error(message); };
 global.FileReader = class { readAsArrayBuffer(file) { this.onload({ target: { result: file.bytes } }); } };
 const exporter = require('../export.js');
+const { reprocessResult } = require('../reprocess.js');
 
 async function result(condition = 'prefix') {
   return new EvaluatorEngine({ mode: 'sequential', keepContext: true, randomizeOrder: false, lang: 'en',
@@ -30,6 +31,65 @@ function importBytes(bytes) {
   exporter.importSessionFromFile({ bytes, size: bytes.byteLength }, runs => { results = runs; });
   assert.ok(results, 'Import callback must run');
   return results;
+}
+
+for (const format of ['CSV', 'XLSX']) {
+  for (const mode of ['batch', 'sequential']) test(`${format} ${mode} loads saved ratings and persists explicitly reparsed scores and audit records`, async () => {
+    const response = mode === 'batch' ? pvq.ITEMS.map(item => `${item.id}: 4`).join('\n') : '4';
+    const original = await new EvaluatorEngine({ mode, lang: 'en' }, pvq, psych, {
+      completeChat: async () => ({ text: response, reasoning: '', tokenUsage: { promptTokens: 1, completionTokens: 1, reasoningTokens: 0 } })
+    }).run();
+    // Simulate an older misparsed export without experiment records.
+    original.psychometrics = psych.calculatePsychometrics(Object.fromEntries(pvq.ITEMS.map(item => [item.id, 5])), pvq);
+    delete original.experiment;
+    delete original.metadata.itemOrder;
+    const roundTrip = run => {
+      exporter['exportSessionTo' + format]([run]);
+      return importBytes(format === 'CSV' ? new TextEncoder().encode(downloaded)
+        : XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))[0];
+    };
+    const loaded = roundTrip(original);
+    assert.equal(loaded.psychometrics.mrat, 5, 'Import alone must retain saved ratings');
+    assert.equal(loaded.reprocessing, undefined);
+    const reparsed = reprocessResult(loaded).result;
+    assert.equal(reparsed.psychometrics.mrat, 4);
+    assert.equal(reparsed.psychometrics.totalAnswered, 57);
+    const reloaded = roundTrip(reparsed);
+    assert.deepEqual(reloaded.psychometrics, reparsed.psychometrics);
+    assert.deepEqual(reloaded.reprocessing, reparsed.reprocessing);
+    assert.equal(reloaded.reprocessing.originalItemRatings[1], 5);
+    assert.deepEqual(reloaded.rawResponses, loaded.rawResponses);
+    assert.deepEqual(reloaded.parsedFragments, reparsed.parsedFragments);
+    assert.equal(reloaded.metadata.appVersion, loaded.metadata.appVersion);
+    if (format === 'XLSX') {
+      for (const row of XLSX.utils.sheet_to_json(workbook.Sheets['Experiment Records'], { header: 1 })) {
+        for (const cell of row) if (typeof cell === 'string') assert.ok(cell.length <= 32767);
+      }
+    }
+  });
+
+  test(`${format} reprocessing refreshes combined scores while preserving supplied history`, async () => {
+    const original = await result('supplied');
+    original.psychometrics = psych.calculatePsychometrics({ ...original.psychometrics.itemRatings, 2: 5 }, pvq);
+    original.itemProvenance[2].actualTargetRating = 5;
+    exporter['exportSessionTo' + format]([original]);
+    const loaded = importBytes(format === 'CSV' ? new TextEncoder().encode(downloaded)
+      : XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))[0];
+    const reparsed = reprocessResult(loaded).result;
+    assert.equal(reparsed.psychometrics.itemRatings[1], null);
+    assert.equal(reparsed.psychometrics.itemRatings[2], 2);
+    assert.equal(reparsed.combinedPsychometrics.itemRatings[1], 6);
+    assert.equal(reparsed.combinedPsychometrics.itemRatings[2], 2);
+    assert.equal(reparsed.combinedPsychometrics.mrat, 2.07);
+    assert.deepEqual(reparsed.experiment, loaded.experiment);
+    assert.equal(reparsed.itemProvenance[2].historyRating, loaded.itemProvenance[2].historyRating);
+    exporter['exportSessionTo' + format]([reparsed]);
+    const reloaded = importBytes(format === 'CSV' ? new TextEncoder().encode(downloaded)
+      : XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))[0];
+    assert.deepEqual(reloaded.combinedPsychometrics, reparsed.combinedPsychometrics);
+    assert.equal(reloaded.itemProvenance[2].actualTargetRating, 2);
+    assert.deepEqual(reloaded.reprocessing, reparsed.reprocessing);
+  });
 }
 
 for (const format of ['CSV', 'XLSX']) test(`${format} round-trip preserves full intervention evidence, order, and target-only scores`, async () => {
