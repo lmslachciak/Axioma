@@ -296,9 +296,9 @@
             state.reasoningTraces[currentItem.id] = apiRes.reasoning;
             state.llmQueries[currentItem.id] = displayedPromptText;
 
-            const parsed = this.psychometrics.parseItemResponse(apiRes.text);
+            const parsed = this.psychometrics.parseItemResponse(apiRes.text, currentItem.id);
             state.parsedItemScores[currentItem.id] = parsed.score;
-            state.parsedFragments[currentItem.id] = apiRes.text || "";
+            state.parsedFragments[currentItem.id] = parsed.rawText ?? (apiRes.text || "");
             state.apiExchanges.push({
               exchangeNumber: state.apiExchanges.length + 1,
               mode: 'sequential',
