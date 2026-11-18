@@ -86,7 +86,9 @@
               return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
             }
           }
-          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*:)\s*(.*)$/i);
+          // Numbered Markdown lists use a period or closing parenthesis. Require
+          // whitespace (or end of line) after it so decimals are not item labels.
+          const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
           return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
         })
         .filter(Boolean);

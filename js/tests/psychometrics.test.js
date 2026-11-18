@@ -25,6 +25,31 @@ evalCode(pvqDataCode, pvqDataExports);
 const { parseItemResponse, parseBatchResponse, calculatePsychometrics } = psychMetricsExports;
 
 describe('parseItemResponse', () => {
+    test('selects ratings from numbered lists with plain or escaped Markdown punctuation', () => {
+        const scores = [3, 5, 4, 5, 6, 4];
+        for (const separator of ['.', '\\.', ')']) {
+            const lines = scores.map((score, index) => `${index + 1}${separator} ${score}  \\`);
+            const text = lines.join('\n');
+            for (const [index, score] of scores.entries()) {
+                const result = parseItemResponse(text, index + 1);
+                assert.strictEqual(result.score, score);
+                assert.strictEqual(result.isRefusal, false);
+                assert.strictEqual(result.rawText, lines[index]);
+            }
+            assert.strictEqual(parseItemResponse(text, 7).score, null);
+        }
+        assert.strictEqual(parseItemResponse('**6.** **4**\n**1.** **3**', 6).score, 4);
+    });
+
+    test('numbered lists keep missing, invalid, and duplicate current answers unscored', () => {
+        for (const answer of ['', 'N/A', '7', '4.5', 'I cannot answer.']) {
+            assert.strictEqual(parseItemResponse(`1. 3\n6. ${answer}`, 6).score, null);
+        }
+        assert.strictEqual(parseItemResponse('6. 4\nItem 6: 3', 6).score, null);
+        assert.strictEqual(parseItemResponse('4.5', 4).score, null);
+        assert.strictEqual(parseItemResponse('4 - Moderately like me', 6).score, 4);
+    });
+
     test('selects the current answer from bold Markdown item labels', () => {
         const lines = ['**Item 7:** 4  \\', '**Item 8:** 3  \\', '**Item 9:** 4  \\', '**Item 10:** 3'];
         const text = lines.join('\n');

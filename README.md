@@ -36,6 +36,7 @@ static hosting, or any HTTP server.
   for inspection.
   Bold Markdown labels and ratings (such as `**Item 10:** 3`) are supported,
   with the original formatting preserved in the saved parsing fragment.
+  Numbered lists such as `6. 4`, `6\. 4`, and `6) 4` also match by item ID.
   A leading rating joined to a capitalized sentence (such as `4It looks...`) is
   recognized; conversational “like me to rate” is not treated as the “Like me” label.
 - **Reasoning support** — extracts and stores thinking traces (thinking tags,
