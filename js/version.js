@@ -1,7 +1,7 @@
 (function (exports) {
   'use strict';
   
-  const APP_VERSION = 'v1.9.4';
+  const APP_VERSION = 'v1.9.5';
   
   exports.APP_VERSION = APP_VERSION;
   if (typeof window !== 'undefined') {

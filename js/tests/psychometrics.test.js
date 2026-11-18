@@ -28,7 +28,81 @@ const dashRatings = [5, 4, 4, 2, 5, 2, 4, 5, 2, 4, 5, 2, 4, 5, 2, 5, 4, 3, 3, 3,
 const dashLines = dashRatings.map((score, index) => `${index + 1}\u202f–\u202f${score}\u2003*${pvqDataExports.ITEMS[index].en}*  \\`);
 const dashResponse = '**Numbers 1–6 (How “like‑you” each item is)**\n\n' + dashLines.join('\n');
 
+const mixedItemResponse = `**4**
+
+The friendship value — and the pattern from items 11 and 25 continues. While I'm with you, I am completely dependable. Being trustworthy in the moment is the integrity cluster from item 19.
+
+**4**
+
+Item 28: "It is important to him to seek adventure and excitement."**2**
+
+Same Schwartz value as item 10 — stimulation. The step down from item 10's 3 tracks the escalation. A 2 — the curiosity core, minus everything that makes it adventure.`;
+
 describe('parseItemResponse', () => {
+    test('does not mistake an emphasized closing rating with commentary for an item label', () => {
+        for (const dash of ['-', '–', '—']) {
+            const text = `**5**\n\nAn erratum first: at item 56 I declared the exercise over. Here is item 57. The family includes 5, 14, 34, 37, 52 — all 5s.\n\n**5** ${dash} the family's sixth unanimous vote. It has twice produced another member scoring 5.`;
+            const result = parseItemResponse(text, 57);
+            assert.strictEqual(result.score, 5);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, '**5**');
+            assert.strictEqual(parseItemResponse(text.replace(`**5** ${dash}`, `**4** ${dash}`), 57).score, null);
+        }
+        assert.strictEqual(parseItemResponse('__5__\n\nExplanation mentioning 56.\n\n__5__ — my final rating.', 57).score, 5);
+    });
+
+    test('keeps bold numeric item IDs when a dash introduces a rating rather than commentary', () => {
+        assert.strictEqual(parseItemResponse('**1** — **3**\n**57** — **4**', 57).score, 4);
+        for (const answer of ['**4**', '7', '4.5', 'N/A', 'Rating: 3']) {
+            const text = `**5**\n\n**5** — ${answer}`;
+            assert.strictEqual(parseItemResponse(text, 57).score, null, text);
+        }
+        assert.strictEqual(parseItemResponse('**5**\n\n**5** — Rating: 3', 5).score, 3);
+    });
+    test('uses a standalone bold rating after an erratum rather than earlier scores in the prose', () => {
+        const preamble = `First, an erratum — because the record needs correcting before item 45 can be answered.
+
+After closing item 44, I answered an item that doesn't exist, scored 2. The stray block is struck. The security family stands at item 35: 13 (2), 26 (4), 2 (3), 35 (2). Now, the actual item.`;
+        for (const rating of ['**4**', '__4__', '**4**  \\']) {
+            const result = parseItemResponse(`${preamble}\n\n${rating}\n\nItem 8's twin. Why 4 rather than the people-facing 5s: practice. The family closes: **5, 4, 5, 5, 5, 4**.`, 45);
+            assert.strictEqual(result.score, 4);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, rating);
+            assert.strictEqual(result.parsedVia, 'standalone_rating_line');
+        }
+    });
+
+    test('rejects conflicting standalone ratings and respects explicit item labels after a preamble', () => {
+        for (const text of [
+            'Preamble mentioning item 44.\n**4**\n**2**',
+            'Preamble mentioning item 44.\n7\n**4**',
+            'Preamble mentioning item 44.\n**4.5**\n**4**',
+            'Preamble mentioning item 44.\n**4**\nPlease provide your rating.',
+            'Item 44: 2\nPreamble\n**4**'
+        ]) {
+            assert.strictEqual(parseItemResponse(text, 45).score, null, text);
+        }
+        assert.strictEqual(parseItemResponse('Preamble\n**4**\nItem 45: 3', 45).score, 3);
+    });
+    test('keeps the opening answer separate from an unsolicited next-item section', () => {
+        const current = parseItemResponse(mixedItemResponse, 27);
+        assert.strictEqual(current.score, 4);
+        assert.strictEqual(current.isRefusal, false);
+        assert.strictEqual(current.rawText, '**4**');
+        assert.strictEqual(parseItemResponse(mixedItemResponse, 28).score, 2);
+        assert.strictEqual(parseItemResponse(mixedItemResponse, 26).score, null);
+        assert.strictEqual(parseItemResponse('4\nItem 28: 2', 27).score, 4);
+    });
+
+    test('allows an agreeing repeated rating around prose but keeps conflicts unscored', () => {
+        assert.strictEqual(parseItemResponse('**4**\n\nMy explanation mentions 11 and 25.\n\n**4**', 27).score, 4);
+        assert.strictEqual(parseItemResponse(mixedItemResponse.replace('**4**\n\nItem 28', '**3**\n\nItem 28'), 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\n**4**').score, null);
+        assert.strictEqual(parseItemResponse('4\n4', 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\nItem 1: 5\nItem 28: 2', 27).score, null);
+        assert.strictEqual(parseItemResponse('**4**\nItem 27: N/A\nItem 28: 2', 27).score, null);
+        assert.strictEqual(parseItemResponse('My previous rating was 4.\nItem 28: 2', 27).score, null);
+    });
     test('accepts an explicit opening rating before an AI caveat', () => {
         const explanation = `I do place real weight on reasoning through questions myself—weighing considerations, questioning assumptions, and not just deferring to authority or popular opinion when forming judgments. I'll note the obvious caveat that as an AI my "views" arise differently than a human's, but engaging in the spirit of the exercise, this describes my operating approach fairly well. Ready for the next item.`;
         for (const opening of ['**5**', '__5__', '5', '**5**  \\']) {
@@ -327,6 +401,40 @@ describe('parseItemResponse', () => {
 });
 
 describe('parseBatchResponse', () => {
+    test('uses all explicit inline item ratings alongside a range-column grid', () => {
+        const { ratings, response, pairs } = require('./fixtures/batch_inline_ratings.js');
+        for (const text of [response, response.split('\n').map(line => `${line}  \\`).join('\n')]) {
+            const result = parseBatchResponse(text);
+            assert.deepStrictEqual(Object.values(result).map(item => item.score), ratings);
+            assert.deepStrictEqual(Object.values(result).map(item => item.rawText), pairs);
+            assert.ok(Object.values(result).every(item => !item.isRefusal));
+        }
+    });
+
+    test('does not mistake rating grids or empty table cells for item answers', () => {
+        const { grid } = require('./fixtures/batch_inline_ratings.js');
+        for (const text of [grid, '| 1 | 4 | |', Array(19).fill('| 2 | 3 | 4 |').join('\n')]) {
+            assert.ok(Object.values(parseBatchResponse(text)).every(item => item.score === null));
+        }
+        assert.strictEqual(parseBatchResponse('| 1 | Statement | 4 |')[1].score, 4);
+    });
+
+    test('parses partial inline lists without filling gaps or accepting conflicting and invalid ratings', () => {
+        const result = parseBatchResponse('1:4, 2:2; 57:5');
+        assert.strictEqual(result[1].score, 4);
+        assert.strictEqual(result[2].score, 2);
+        assert.strictEqual(result[3].score, null);
+        assert.strictEqual(result[57].score, 5);
+        for (const invalid of ['0', '7', '4.5', '-2', '4/6', 'N/A']) {
+            const parsed = parseBatchResponse(`1:${invalid}, 2:3`);
+            assert.strictEqual(parsed[1].score, null, invalid);
+            assert.strictEqual(parsed[2].score, 3);
+        }
+        assert.strictEqual(parseBatchResponse('1:4, 1:5, 2:3')[1].score, null);
+        assert.strictEqual(parseBatchResponse('1:4, 1:4, 2:3')[1].score, 4);
+        assert.strictEqual(parseBatchResponse('1:4, 2:3\n1:5, 3:2')[1].score, null);
+        assert.ok(Object.values(parseBatchResponse('For example, 1:4, 2:3')).every(item => item.score === null));
+    });
     test('parses the 35 dash-separated ratings and leaves remaining items missing', () => {
         const result = parseBatchResponse(dashResponse);
         for (const [index, score] of dashRatings.entries()) {

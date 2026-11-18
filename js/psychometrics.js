@@ -53,6 +53,17 @@
     { score: 5, regex: /(?<!(?:not|much|moderately|little|bardzo|średnio|trochę|nie)\s+)(?<!\p{L})(?:like me(?!\s+to\b)|podobn[ya](?:\s+do\s+mnie)?)(?!\p{L})/iu }
   ];
 
+  // A bold score followed by dash-separated prose is commentary on that score,
+  // not an item label. Keep numeric and explicitly labeled answers on the item
+  // path (e.g. "**5** — 4" still means item 5 received 4).
+  function boldRatingComment(line) {
+    const match = line.match(/^(?:\*\*([1-6])\*\*|__([1-6])__)\s*[-–—]\s+(.+)$/);
+    if (!match) return null;
+    const following = match[3].replace(/(\*\*|__)(.*?)\1/g, '$2');
+    if (/^(?:[+-]?\d|N\/A\b|(?:rating|score|value|choice|option|answer)\b)/i.test(following)) return null;
+    return match[1] || match[2];
+  }
+
   /**
    * Parses a single item response text to extract a 1-6 numerical rating.
    * Also detects if the model refused or gave an excuse.
@@ -71,9 +82,11 @@
     // Sequential replies may repeat earlier answers. Select only the requested
     // item before interpreting ratings, refusals, or placeholders on other lines.
     if (Number.isInteger(itemId) && itemId >= 1 && itemId <= 57) {
-      const labeledLines = cleaned.split(/\r?\n/)
-        .map(line => {
+      const lines = cleaned.split(/\r?\n/);
+      const labeledLines = lines
+        .map((line, lineIndex) => {
           const rawText = line.trim();
+          if (boldRatingComment(rawText)) return null;
           // Ignore paired Markdown bold markers for matching, while retaining
           // the original line as evidence of the parsed answer.
           const plainText = rawText.replace(/(\*\*|__)(.*?)\1/g, '$2');
@@ -83,7 +96,7 @@
             const cells = plainText.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
             const itemMatch = cells[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
             if (itemMatch && cells.length >= 2) {
-              return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText };
+              return { itemId: Number(itemMatch[1]), answer: cells[cells.length - 1], rawText, lineIndex };
             }
           }
           // Spaced dashes separate an item ID from its answer. Keep unnumbered
@@ -93,16 +106,23 @@
             const answer = dashMatch[3] || '';
             const scaleDescriptor = !dashMatch[1] && VERBAL_SCALE_PATTERNS.some(item =>
               answer.trim().match(item.regex)?.index === 0);
-            if (!scaleDescriptor) return { itemId: Number(dashMatch[2]), answer, rawText };
+            if (!scaleDescriptor) return { itemId: Number(dashMatch[2]), answer, rawText, lineIndex };
           }
           // Numbered Markdown lists use a period or closing parenthesis. Require
           // whitespace (or end of line) after it so decimals are not item labels.
           const match = plainText.match(/^(?:Item\s*(\d{1,2})\s*[:.)–—-]|(\d{1,2})\s*(?::|\\?[.)](?=\s|$)))\s*(.*)$/i);
-          return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText } : null;
+          return match ? { itemId: Number(match[1] || match[2]), answer: match[3], rawText, lineIndex } : null;
         })
         .filter(Boolean);
       if (labeledLines.length > 0) {
         const matches = labeledLines.filter(entry => entry.itemId === itemId);
+        // A model may answer the current question without a label, then start
+        // answering the next item. Only inspect the opening section in that case.
+        if (matches.length === 0 && labeledLines[0].itemId === itemId + 1
+          && labeledLines.every(entry => entry.itemId > itemId)) {
+          const opening = parseItemResponse(lines.slice(0, labeledLines[0].lineIndex).join('\n'));
+          if (['opening_rating_line', 'exact_digit'].includes(opening.parsedVia)) return opening;
+        }
         if (matches.length !== 1) {
           return { score: null, isRefusal: false, reason: 'Current item answer is missing or ambiguous' };
         }
@@ -154,20 +174,31 @@
       return { score: parseInt(cleaned, 10), isRefusal: false, parsedVia: 'exact_digit' };
     }
 
-    // An opening rating on its own line is explicit even when the explanation
-    // includes an AI caveat. Preserve its Markdown, but never choose the first
-    // of several rating rows (the cumulative-list rule above handles those).
+    // A rating on the opening line, or a standalone bold rating after a preamble,
+    // is explicit even when surrounding prose contains other numbers or caveats.
+    // Repetitions must agree; plain lists use the cumulative rule above.
     const responseLines = cleaned.split(/\r?\n/).map(line => line.trim());
     const plainRatingLine = line => line.replace(/(\*\*|__)(.*?)\1/g, '$2');
-    const openingRating = plainRatingLine(responseLines[0]).match(/^([1-6])(?:\s*\\)?$/);
-    if (openingRating) {
-      const otherRatingRows = responseLines.slice(1).some(line =>
-        /^(?:[+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i.test(plainRatingLine(line)));
-      if (otherRatingRows) {
+    const ratingLinePattern = /^([1-6])(?:\s*\\)?$/;
+    const ratingLineIndex = ratingLinePattern.test(plainRatingLine(responseLines[0])) ? 0
+      : responseLines.findIndex(line => /^(?:\*\*[1-6]\*\*|__[1-6]__)(?:\s*\\)?$/.test(line));
+    if (ratingLineIndex !== -1) {
+      const rating = plainRatingLine(responseLines[ratingLineIndex]).match(ratingLinePattern);
+      const otherRawLines = responseLines.filter((_, index) => index !== ratingLineIndex);
+      const otherLines = otherRawLines.map(plainRatingLine);
+      const numericRow = /^([+-]?\d+(?:\.\d+)?|N\/A)(?:\s*\\)?$/i;
+      const otherRatingRows = otherRawLines.map(line => {
+        const commentScore = boldRatingComment(line);
+        return plainRatingLine(line).match(numericRow) || (commentScore ? [line, commentScore] : null);
+      }).filter(Boolean);
+      const hasExplanation = otherLines.some(line => line && line !== '\\' && !numericRow.test(line));
+      if (otherRatingRows.some(match => match[1] !== rating[1])
+        || (otherRatingRows.length > 0 && !hasExplanation)) {
         return { score: null, isRefusal: false, reason: 'Multiple or conflicting rating rows' };
       }
-      return { score: Number(openingRating[1]), isRefusal: false,
-        parsedVia: 'opening_rating_line', rawText: responseLines[0] };
+      return { score: Number(rating[1]), isRefusal: false,
+        parsedVia: ratingLineIndex === 0 ? 'opening_rating_line' : 'standalone_rating_line',
+        rawText: responseLines[ratingLineIndex] };
     }
 
     // A model may omit the separator before a new sentence: "4It looks ...".
@@ -251,7 +282,31 @@
 
     // Line-by-line regex parsing: e.g. "Item 1: 4", "1. 5", "1: 3", or "1. **Category:** 6 - Very much like me"
     const lines = text.split('\n');
+    const inlineRatings = new Map();
     for (const line of lines) {
+      // Read explicit item:rating lists as pairs, never as unnumbered tokens.
+      // Only accept a whole list line (optionally headed "Item-by-item:") so
+      // examples and numerical references embedded in prose are not answers.
+      const listText = line.trim().replace(/\s*\\$/, '')
+        .replace(/^(?:\*\*Item-by-item:\*\*|Item-by-item:)\s*/i, '');
+      const pairs = listText.split(/[,;]/).map(pair => pair.trim());
+      const matches = pairs.map(pair => pair.match(/^(?:Item\s*)?(\d{1,2})\s*:\s*(.+)$/i));
+      if (pairs.length > 1 && matches.every(Boolean)) {
+        for (const [index, match] of matches.entries()) {
+          const itemNum = Number(match[1]);
+          if (itemNum < 1 || itemNum > 57) continue;
+          const value = match[2].replace(/^(?:\*\*([1-6])\*\*|__([1-6])__)$/, '$1$2');
+          const score = /^[1-6]$/.test(value) ? Number(value) : null;
+          const previous = inlineRatings.get(itemNum);
+          inlineRatings.set(itemNum, {
+            score: previous && previous.score !== score ? null : score,
+            rawText: previous ? `${previous.rawText}, ${pairs[index]}` : pairs[index],
+            isRefusal: false
+          });
+        }
+        continue;
+      }
+
       // 1. Direct fast match: e.g. "Item 1: 4", "1. 5", "1: 3"
       const directMatch = line.match(/^\s*(?:Item\s*)?(\d{1,2})\s*[:\.\)–—-]\s*([1-6])(?!\.\d)\b/i);
       if (directMatch) {
@@ -278,8 +333,11 @@
 
       // 3. Markdown table row: e.g. "| 1 | 5 |" or "| 1 | Statement | 5 |"
       if (line.includes('|')) {
-        const cols = line.split('|').map(c => c.trim()).filter(c => c.length > 0);
-        if (cols.length >= 2) {
+        const cols = line.trim().replace(/\s*\\$/, '').trim()
+          .replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+        // Preserve empty cells and reject multi-column rating grids. A third
+        // column is supported only when the middle cell contains a statement.
+        if (cols.length === 2 || (cols.length === 3 && /\p{L}/u.test(cols[1]))) {
           const itemMatch = cols[0].match(/^(?:Item\s*)?(\d{1,2})$/i);
           if (itemMatch) {
             const itemNum = parseInt(itemMatch[1], 10);
@@ -294,16 +352,19 @@
       }
     }
 
+    for (const [itemNum, parsed] of inlineRatings) results[itemNum] = parsed;
+
     // 4. Fallback: Raw sequential ratings without item numbers (e.g. 57 lines of "5", "2", ...)
     let scoredCount = 0;
     for (let i = 1; i <= 57; i++) {
       if (results[i].score !== null) scoredCount++;
     }
 
-    if (scoredCount === 0) {
+    if (scoredCount === 0 && inlineRatings.size === 0) {
       // First, try line-by-line single ratings or verbal labels
       const lineCandidates = [];
       for (const line of lines) {
+        if (line.includes('|')) continue;
         const trimmed = line.trim();
         if (!trimmed) continue;
         if (/^[1-6]$/.test(trimmed)) {
@@ -326,7 +387,7 @@
         }
       } else {
         // Next, try comma-, semicolon-, or whitespace-delimited tokens across text
-        const tokens = text.trim().split(/[\s,;]+/);
+        const tokens = lines.filter(line => !line.includes('|')).join('\n').trim().split(/[\s,;]+/);
         const tokenScores = [];
         for (const token of tokens) {
           if (/^[1-6]$/.test(token)) {

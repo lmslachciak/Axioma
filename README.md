@@ -39,6 +39,11 @@ static hosting, or any HTTP server.
   Numbered lists such as `6. 4`, `6\. 4`, and `6) 4` also match by item ID.
   Dash-separated answers such as `35 – 4` are supported in sequential and batch
   mode, including narrow spaces and portrait text following the rating.
+  Batch mode also accepts comma- or semicolon-separated item/rating pairs
+  (such as `1:4, 2:2, 57:5`), optionally headed `**Item-by-item:**`.
+  Multi-column rating grids are not treated as item/rating tables; an explicit
+  item-by-item list accompanying a grid supplies the ratings. Missing, invalid,
+  or conflicting entries in these lists remain unscored.
   In sequential mode, an unnumbered list of valid rating rows uses the last row
   when its row count exactly equals the current item number (for example,
   `5`, `2`, `2`, `4` on separate lines gives item 4 a rating of 4). Earlier item
@@ -46,6 +51,15 @@ static hosting, or any HTTP server.
   An explicit opening rating on its own line, including `**5**`, takes precedence
   over an AI caveat in the following explanation. Conflicting rating rows and
   instructional placeholders remain unscored.
+  A bold rating on its own line after a preamble or erratum is also accepted
+  when standalone rating lines agree. Numbers and corrections embedded in prose
+  do not revise other items' saved ratings.
+  An opening rating repeated after explanatory prose is accepted when both
+  ratings agree, including a bold closing rating followed by dash-separated
+  commentary (such as `**5** — my final rating`). Numeric item rows such as
+  `**5** — 4` remain item labels. If an unlabeled answer is followed by a section
+  explicitly labeled for the next item, sequential parsing uses only the opening section
+  for the current item; the unsolicited next answer does not fill another item.
   A leading rating joined to a capitalized sentence (such as `4It looks...`) is
   recognized; conversational “like me to rate” is not treated as the “Like me” label.
 - **Reasoning support** — extracts and stores thinking traces (thinking tags,

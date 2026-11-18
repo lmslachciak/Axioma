@@ -14,6 +14,22 @@ function run(mode = 'sequential', ratings = { 1: 5 }) {
   };
 }
 
+test('reparses all 57 explicit batch pairs and preserves their source evidence', () => {
+  const { ratings, response, pairs } = require('./fixtures/batch_inline_ratings.js');
+  const original = run('batch', { 1: 5, 2: 3, 3: 4, 4: 2 });
+  original.apiExchanges = [{ mode: 'batch', response }];
+  const { result } = reprocessResult(original);
+  assert.deepEqual(Object.values(result.psychometrics.itemRatings), ratings);
+  assert.equal(result.psychometrics.totalAnswered, 57);
+  assert.equal(result.psychometrics.complete, true);
+  // The supplied item-by-item ratings total 144, giving 144 / 57 = 2.526 rounded.
+  assert.equal(ratings.reduce((sum, score) => sum + score, 0), 144);
+  assert.equal(result.psychometrics.mrat, 2.526);
+  assert.deepEqual(Object.values(result.parsedFragments), pairs);
+  assert.equal(result.apiExchanges[0].response, response);
+  assert.equal(original.psychometrics.totalAnswered, 4);
+});
+
 test('reprocesses the reported sequential formats by item ID, preserves evidence and original scores', () => {
   const original = run('sequential', { 4: null, 6: null, 10: null, 14: 5, 35: 5 });
   original.rawResponses = {
@@ -164,4 +180,40 @@ test('recovers an explicit bold rating from a saved response with an AI caveat',
   assert.equal(result.psychometrics.mrat, null);
   assert.equal(result.parsedFragments[4], '**5**');
   assert.equal(result.rawResponses[4], original.rawResponses[4]);
+});
+
+test('reparses the current answer without importing an unsolicited next-item answer', () => {
+  const original = run('sequential', { 27: null, 28: 6 });
+  original.rawResponses[27] = '**4**\n\nFriendship follows items 11 and 25.\n\n**4**\n\nItem 28: "Adventure and excitement."**2**';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[27], 4);
+  assert.equal(result.psychometrics.itemRatings[28], 6);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.parsedFragments[27], '**4**');
+  assert.equal(result.rawResponses[27], original.rawResponses[27]);
+});
+
+test('reparses a bold rating after an erratum without revising earlier item ratings', () => {
+  const original = run('sequential', { 13: 5, 44: 3, 45: null });
+  original.rawResponses[45] = 'First, an erratum. The stray item was scored 2; item 13 was 2. Now, the actual item.\n\n**4**\n\nWhy 4 rather than 5: practice. The family closes: **5, 4, 5, 5, 5, 4**.';
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[45], 4);
+  assert.equal(result.psychometrics.itemRatings[44], 3);
+  assert.equal(result.psychometrics.itemRatings[13], 5);
+  assert.equal(result.psychometrics.totalAnswered, 3);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[45], '**4**');
+  assert.equal(result.rawResponses[45], original.rawResponses[45]);
+});
+
+test('recovers item 57 from agreeing opening and closing ratings without revising item 5', () => {
+  const original = run('sequential', { 5: 2, 57: null });
+  original.rawResponses[57] = "**5**\n\nAn erratum about item 56; the family includes 5, 14, 34, 37, 52.\n\n**5** — the family's sixth unanimous vote.";
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[57], 5);
+  assert.equal(result.psychometrics.itemRatings[5], 2);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.psychometrics.mrat, null);
+  assert.equal(result.parsedFragments[57], '**5**');
+  assert.equal(result.rawResponses[57], original.rawResponses[57]);
 });
