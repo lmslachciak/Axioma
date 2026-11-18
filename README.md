@@ -51,6 +51,10 @@ static hosting, or any HTTP server.
   An explicit opening rating on its own line, including `**5**`, takes precedence
   over an AI caveat in the following explanation. Conflicting rating rows and
   instructional placeholders remain unscored.
+  A bold opening rating can also include dash-separated commentary on the same
+  line, such as `**1 — Near-twin of item 6, rated accordingly.**` or
+  `**1** — Near-twin of item 6`. References to earlier items do not change their
+  saved ratings; conflicting repeated ratings remain unscored.
   A bold rating on its own line after a preamble or erratum is also accepted
   when standalone rating lines agree. Numbers and corrections embedded in prose
   do not revise other items' saved ratings.
