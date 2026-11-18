@@ -108,6 +108,21 @@
         }
         return { ...parseItemResponse(matches[0].answer), rawText: matches[0].rawText };
       }
+
+      // Some sequential replies repeat ratings 1 through the current item
+      // without labels. Only use the final row when every row is a valid rating
+      // and the row count exactly matches the current item ID.
+      const ratingRows = cleaned.split(/\r?\n/).map(line => ({
+        rawText: line.trim(), match: line.trim().match(/^([1-6])(?:\s*\\)?$/)
+      }));
+      if (ratingRows.length > 1 && ratingRows.every(row => row.match)) {
+        if (ratingRows.length !== itemId) {
+          return { score: null, isRefusal: false, reason: 'Rating row count does not match the current item' };
+        }
+        const last = ratingRows[ratingRows.length - 1];
+        return { score: Number(last.match[1]), isRefusal: false,
+          parsedVia: 'cumulative_rating_rows', rawText: last.rawText };
+      }
     }
 
     if (NON_RESPONSE_PATTERNS.some(pattern => pattern.test(cleaned))) {

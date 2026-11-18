@@ -143,3 +143,14 @@ test('reparses saved dash-separated answers for the requested item only', () => 
   assert.equal(result.psychometrics.mrat, null);
   assert.equal(result.rawResponses[35], original.rawResponses[35]);
 });
+
+test('reparses matching cumulative rating lists without replacing earlier answers', () => {
+  const original = run('sequential', { 1: 1, 4: null, 5: null });
+  original.rawResponses = { 4: '5\n2\n2\n4', 5: '5\n2\n2\n4' };
+  const { result } = reprocessResult(original);
+  assert.equal(result.psychometrics.itemRatings[1], 1);
+  assert.equal(result.psychometrics.itemRatings[4], 4);
+  assert.equal(result.psychometrics.itemRatings[5], null);
+  assert.equal(result.psychometrics.totalAnswered, 2);
+  assert.equal(result.parsedFragments[4], '4');
+});
