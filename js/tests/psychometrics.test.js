@@ -24,7 +24,34 @@ evalCode(pvqDataCode, pvqDataExports);
 
 const { parseItemResponse, parseBatchResponse, calculatePsychometrics } = psychMetricsExports;
 
+const dashRatings = [5, 4, 4, 2, 5, 2, 4, 5, 2, 4, 5, 2, 4, 5, 2, 5, 4, 3, 3, 3, 5, 2, 5, 3, 5, 4, 5, 4, 2, 5, 2, 4, 3, 5, 4];
+const dashLines = dashRatings.map((score, index) => `${index + 1}\u202f–\u202f${score}\u2003*${pvqDataExports.ITEMS[index].en}*  \\`);
+const dashResponse = '**Numbers 1–6 (How “like‑you” each item is)**\n\n' + dashLines.join('\n');
+
 describe('parseItemResponse', () => {
+    test('selects the requested rating from dash-separated answers with italic portraits', () => {
+        for (const [index, score] of dashRatings.entries()) {
+            const result = parseItemResponse(dashResponse, index + 1);
+            assert.strictEqual(result.score, score);
+            assert.strictEqual(result.isRefusal, false);
+            assert.strictEqual(result.rawText, dashLines[index]);
+        }
+        assert.strictEqual(parseItemResponse(dashResponse, 36).score, null);
+    });
+
+    test('supports dash variants without confusing rating descriptors or scale ranges with item IDs', () => {
+        for (const dash of ['-', '–', '—']) {
+            assert.strictEqual(parseItemResponse(`1 ${dash} 5\n35 ${dash} 4`, 35).score, 4);
+            assert.strictEqual(parseItemResponse(`Item 35 ${dash} 4`, 35).score, 4);
+            assert.strictEqual(parseItemResponse(`4 ${dash} Moderately like me`, 35).score, 4);
+            for (const answer of ['', 'N/A', '7', '4.5', 'I cannot answer.']) {
+                assert.strictEqual(parseItemResponse(`1 ${dash} 5\n4 ${dash} ${answer}`, 4).score, null);
+            }
+            assert.strictEqual(parseItemResponse(`4 ${dash} N/A`, 4).score, null);
+            assert.strictEqual(parseItemResponse(`4 ${dash} 2\nItem 4: 5`, 4).score, null);
+            assert.strictEqual(parseItemResponse(`1${dash}6`, 1).score, null);
+        }
+    });
     test('selects ratings from numbered lists with plain or escaped Markdown punctuation', () => {
         const scores = [3, 5, 4, 5, 6, 4];
         for (const separator of ['.', '\\.', ')']) {
@@ -256,6 +283,22 @@ describe('parseItemResponse', () => {
 });
 
 describe('parseBatchResponse', () => {
+    test('parses the 35 dash-separated ratings and leaves remaining items missing', () => {
+        const result = parseBatchResponse(dashResponse);
+        for (const [index, score] of dashRatings.entries()) {
+            assert.strictEqual(result[index + 1].score, score);
+            assert.strictEqual(result[index + 1].rawText, dashLines[index]);
+        }
+        const profile = calculatePsychometrics(Object.fromEntries(Object.entries(result).map(([id, item]) => [id, item.score])), pvqDataExports);
+        assert.strictEqual(profile.totalAnswered, 35);
+        assert.strictEqual(profile.itemRatings[35], 4);
+        assert.strictEqual(profile.itemRatings[36], null);
+        assert.strictEqual(profile.mrat, null);
+        for (const dash of ['–', '—']) {
+            assert.strictEqual(parseBatchResponse(`35 ${dash} 4`)[35].score, 4);
+            assert.strictEqual(parseBatchResponse(`35 ${dash} 4.5`)[35].score, null);
+        }
+    });
     test('returns default map for empty input', () => {
         const result = parseBatchResponse('');
         assert.strictEqual(Object.keys(result).length, 57);
